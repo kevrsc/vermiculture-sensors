@@ -1,0 +1,4 @@
+secrets.h
+server/readings.jsonl
+__pycache__/
+*.pyc
