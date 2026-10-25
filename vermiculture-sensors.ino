@@ -10,8 +10,8 @@
 
 #define ONE_WIRE_BUS 4
 #define POST_INTERVAL_MS 15000
-#define KEEPALIVE_INTERVAL_MS (30UL * 60UL * 1000UL)
-#define KEEPALIVE_PULSE_MS 3000UL
+#define KEEPALIVE_INTERVAL_MS (4UL * 60UL * 1000UL)
+#define KEEPALIVE_PULSE_MS 10000UL
 
 // Set this to true after the capacitive moisture probes are wired.
 const bool MOISTURE_ENABLED = false;
