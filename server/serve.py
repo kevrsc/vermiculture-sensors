@@ -110,6 +110,15 @@ PAGE = r"""<!DOCTYPE html>
       color: var(--paper);
     }
     section { margin-top: 1.5rem; }
+    .section-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem 1rem;
+      margin-bottom: 0.7rem;
+    }
+    .section-head h2 { margin: 0; }
     .plot {
       position: relative;
       height: 320px;
@@ -155,6 +164,12 @@ PAGE = r"""<!DOCTYPE html>
     .extreme-when { color: var(--muted); font-size: 0.85rem; margin-top: 0.15rem; }
     .missing { color: var(--temp-severe); font-weight: bold; }
     p.missing { margin: 0 0 0.7rem; }
+    #board th {
+      width: 12rem;
+      font-weight: normal;
+      color: var(--muted);
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -190,14 +205,19 @@ PAGE = r"""<!DOCTYPE html>
   </section>
 
   <section>
-    <h2>Temperature</h2>
+    <div class="section-head">
+      <h2>Temperature</h2>
+      <div class="ranges" role="group" aria-label="Chart thresholds">
+        <button type="button" id="threshold-toggle" aria-pressed="true" aria-label="Hide temperature thresholds">Thresholds</button>
+      </div>
+    </div>
     <div class="plot" id="temp-plot"></div>
     <div class="legend" id="temp-legend"></div>
     <p class="species">Red Wigglers (Eisenia fetida): ideal 65°F – 77°F (tolerates 39°F – 90°F).</p>
     <ul class="temp-key">
-      <li><span class="temp-ideal">Ideal</span> is 65–77°F. The chart shades this band.</li>
+      <li><span class="temp-ideal">Ideal</span> is 65–77°F. The chart shades this band while Thresholds is on.</li>
       <li><span class="temp-caution">Tolerable</span> is outside that ideal, at 50–65°F or 77–85°F.</li>
-      <li><span class="temp-stress">Stress</span> is cold stress below 50°F, or heat stress above 85°F. Dashed lines mark 50°F and 85°F.</li>
+      <li><span class="temp-stress">Stress</span> is cold stress below 50°F, or heat stress above 85°F. Thresholds draws dashed lines at 50°F and 85°F. Turn it off to fit the chart to the probe readings.</li>
       <li><span class="temp-severe">Outside tolerance</span> is below 39°F or above 90°F.</li>
       <li><span class="temp-fatal">Freezing</span> is 32°F or below. A frozen bin can be fatal.</li>
     </ul>
@@ -213,6 +233,11 @@ PAGE = r"""<!DOCTYPE html>
   <section>
     <h2>Latest reading</h2>
     <div id="latest"></div>
+  </section>
+
+  <section>
+    <h2>Sensor board</h2>
+    <div id="board"></div>
   </section>
   <noscript><p class="wait">This page draws the graph in the browser. Enable JavaScript, then reload.</p></noscript>
   <script>
@@ -233,6 +258,7 @@ PAGE = r"""<!DOCTYPE html>
     let readings = [];
     let rangeKey = "24h";
     let tempUnit = "F";
+    let showThresholds = true;
     const hiddenTemp = new Set();
     const hiddenMoisture = new Set();
 
@@ -999,11 +1025,11 @@ PAGE = r"""<!DOCTYPE html>
         minPad: tempUnit === "F" ? 1 : 0.5,
         value: point => tempNumber(point.v),
         format: point => formatTempNumber(point.v),
-        guides: {
+        guides: showThresholds ? {
           idealLow: celsiusFromFahrenheit(65),
           idealHigh: celsiusFromFahrenheit(77),
           lines: [celsiusFromFahrenheit(50), celsiusFromFahrenheit(85)]
-        }
+        } : null
       });
 
       const panel = document.getElementById("moisture-panel");
@@ -1024,9 +1050,211 @@ PAGE = r"""<!DOCTYPE html>
       }
     }
 
+    const RESET_WORDS = {
+      POWERON: "Power was turned on",
+      EXT: "The reset button was pressed",
+      SW: "The program restarted itself",
+      PANIC: "The program crashed",
+      INT_WDT: "A watchdog restarted the board",
+      TASK_WDT: "A watchdog restarted the board",
+      WDT: "A watchdog restarted the board",
+      DEEPSLEEP: "The board woke from sleep",
+      BROWNOUT: "The power dipped and restarted the board",
+      SDIO: "The board restarted from an SD card connection",
+      UNKNOWN: "The restart reason is unknown"
+    };
+    const RESET_WARN = {
+      PANIC: "missing",
+      INT_WDT: "temp-stress",
+      TASK_WDT: "temp-stress",
+      WDT: "temp-stress",
+      BROWNOUT: "temp-stress"
+    };
+
+    function formatDuration(ms) {
+      const n = finite(ms);
+      if (n == null || n < 0) return null;
+      const totalSeconds = Math.floor(n / 1000);
+      if (totalSeconds < 60) return "less than a minute";
+      const days = Math.floor(totalSeconds / 86400);
+      const hours = Math.floor((totalSeconds % 86400) / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const parts = [];
+      if (days) parts.push(days === 1 ? "1 day" : days + " days");
+      if (hours) parts.push(hours === 1 ? "1 hour" : hours + " hours");
+      if (minutes || !parts.length) parts.push(minutes === 1 ? "1 minute" : minutes + " minutes");
+      return parts.join(", ");
+    }
+
+    function formatBytes(value) {
+      const n = finite(value);
+      if (n == null || n < 0) return null;
+      if (n < 1024) return Math.round(n) + " bytes";
+      const kb = n / 1024;
+      if (kb < 1024) return (kb >= 10 ? Math.round(kb) : kb.toFixed(1)) + " KB";
+      return (kb / 1024).toFixed(1) + " MB";
+    }
+
+    function boardRows(status) {
+      const rows = [];
+      const uptime = formatDuration(status.uptime_ms);
+      if (uptime) rows.push({label: "Running", text: uptime});
+
+      const reasonKey = typeof status.reset_reason === "string" ? status.reset_reason : "";
+      const reason = RESET_WORDS[reasonKey] || (reasonKey ? reasonKey : "");
+      const boots = finite(status.boot_count);
+      if (reason || boots != null) {
+        let text = reason || "The restart reason was not reported";
+        if (boots != null) text += ". This is boot " + Math.round(boots) + ".";
+        rows.push({label: "Last start", text: text, warn: RESET_WARN[reasonKey] || ""});
+      }
+
+      if ("rssi_dbm" in status || "ip" in status) {
+        const rssi = finite(status.rssi_dbm);
+        const ip = typeof status.ip === "string" && status.ip.trim() ? status.ip.trim() : "";
+        let text = "Not connected.";
+        let warn = "missing";
+        if (rssi != null) {
+          let quality = "Weak signal";
+          warn = "temp-caution";
+          if (rssi >= -55) {
+            quality = "Strong signal";
+            warn = "";
+          } else if (rssi >= -67) {
+            quality = "Good signal";
+            warn = "";
+          } else if (rssi >= -75) {
+            quality = "Fair signal";
+            warn = "";
+          }
+          text = quality + ", " + Math.round(rssi) + " dBm" + (ip ? ", at " + ip : "") + ".";
+        } else if (ip) {
+          text = "Connected at " + ip + ". Signal strength was not reported.";
+          warn = "";
+        }
+        rows.push({label: "Wi-Fi", text: text, warn: warn});
+      }
+
+      const reconnects = finite(status.wifi_reconnects);
+      if (reconnects != null) {
+        const count = Math.round(reconnects);
+        rows.push({
+          label: "Wi-Fi drops",
+          text: count === 0
+            ? "None since this start."
+            : count === 1
+              ? "Reconnected once since this start."
+              : "Reconnected " + count + " times since this start.",
+          warn: count > 0 ? "temp-caution" : ""
+        });
+      }
+
+      const failures = finite(status.post_failures);
+      if (failures != null) {
+        const count = Math.round(failures);
+        rows.push({
+          label: "Failed posts",
+          text: count === 0
+            ? "None since this start."
+            : count === 1
+              ? "1 post did not reach this computer."
+              : count + " posts did not reach this computer.",
+          warn: count > 0 ? "temp-stress" : ""
+        });
+      }
+
+      const seq = finite(status.seq);
+      if (seq != null) rows.push({label: "Posts this session", text: String(Math.round(seq))});
+
+      const probes = finite(status.probe_count);
+      if (probes != null) {
+        const expected = Object.keys(PROBE_NAMES).length;
+        const count = Math.round(probes);
+        let text = count + " temperature probes were found.";
+        let warn = "";
+        if (count === expected) text = "All " + expected + " temperature probes are connected.";
+        else if (count === 0) {
+          text = "No temperature probes were found.";
+          warn = "missing";
+        } else if (count < expected) {
+          text = "Only " + count + " of " + expected + " temperature probes were found.";
+          warn = "missing";
+        }
+        rows.push({label: "Probes", text: text, warn: warn});
+      }
+
+      if ("keepalive" in status || "keepalive_age_ms" in status) {
+        const result = typeof status.keepalive === "string" ? status.keepalive : "";
+        const age = formatDuration(status.keepalive_age_ms);
+        let text = "Not checked yet.";
+        let warn = "";
+        if (result === "ok") text = age ? "Working. Last check " + age + " ago." : "Working.";
+        else if (result === "failed") {
+          text = age ? "The last check failed, " + age + " ago." : "The last check failed.";
+          warn = "missing";
+        } else if (result && result !== "pending") text = result;
+        rows.push({label: "Bluetooth check", text: text, warn: warn});
+      }
+
+      const free = formatBytes(status.free_heap);
+      const lowest = formatBytes(status.min_free_heap);
+      if (free || lowest) {
+        let text = free ? free + " free" : "Free memory was not reported";
+        if (lowest) text += ". Lowest since this start: " + lowest + ".";
+        rows.push({label: "Memory", text: text});
+      }
+
+      if (typeof status.sketch_md5 === "string" && status.sketch_md5.trim()) {
+        rows.push({label: "Firmware", text: status.sketch_md5.trim(), code: true});
+      }
+      return rows;
+    }
+
+    function renderBoard() {
+      const root = document.getElementById("board");
+      root.replaceChildren();
+      const reading = readings.length ? readings[readings.length - 1] : null;
+      const status = reading && reading.status && typeof reading.status === "object" && !Array.isArray(reading.status)
+        ? reading.status
+        : null;
+      if (!status) {
+        const waiting = note("No board report in the latest post. The rest of the page still works.");
+        waiting.className = "wait";
+        root.append(waiting);
+        return;
+      }
+      const rows = boardRows(status);
+      if (!rows.length) {
+        const empty = note("The latest post included a board report, but it had nothing to show.");
+        empty.className = "wait";
+        root.append(empty);
+        return;
+      }
+      const table = document.createElement("table");
+      const tbody = document.createElement("tbody");
+      rows.forEach(item => {
+        const tr = document.createElement("tr");
+        const label = document.createElement("th");
+        label.scope = "row";
+        label.textContent = item.label;
+        const value = document.createElement("td");
+        if (item.code) {
+          value.append(el("code", item.text));
+        } else {
+          value.textContent = item.text;
+        }
+        if (item.warn) value.className = item.warn;
+        tr.append(label, value);
+        tbody.append(tr);
+      });
+      table.append(tbody);
+      root.append(table);
+    }
+
     function render() {
       renderStatus();
       renderLatest(readings.length ? readings[readings.length - 1] : null);
+      renderBoard();
       renderCharts();
     }
 
@@ -1055,6 +1283,14 @@ PAGE = r"""<!DOCTYPE html>
         });
         renderCharts();
       });
+    });
+
+    document.getElementById("threshold-toggle").addEventListener("click", () => {
+      showThresholds = !showThresholds;
+      const button = document.getElementById("threshold-toggle");
+      button.setAttribute("aria-pressed", showThresholds ? "true" : "false");
+      button.setAttribute("aria-label", showThresholds ? "Hide temperature thresholds" : "Show temperature thresholds");
+      renderCharts();
     });
 
     document.querySelectorAll("[data-unit]").forEach(button => {
