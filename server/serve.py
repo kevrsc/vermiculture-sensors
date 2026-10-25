@@ -45,6 +45,8 @@ PAGE = r"""<!DOCTYPE html>
       --temp-stress: #c45c12;
       --temp-severe: #c41919;
       --temp-fatal: #7a1020;
+      --ideal-band: rgba(27, 122, 52, 0.16);
+      --guide: #8a5a00;
     }
     :root.night {
       color-scheme: dark;
@@ -65,6 +67,8 @@ PAGE = r"""<!DOCTYPE html>
       --temp-stress: #ffb067;
       --temp-severe: #ff8b7a;
       --temp-fatal: #ff6b8a;
+      --ideal-band: rgba(125, 206, 160, 0.18);
+      --guide: #e2b86a;
     }
     body {
       font-family: Georgia, serif;
@@ -147,7 +151,10 @@ PAGE = r"""<!DOCTYPE html>
     .temp-fatal { color: var(--temp-fatal); font-weight: bold; }
     .temp-key { margin: 0.4rem 0 0; padding-left: 1.2rem; }
     .temp-key li { margin: 0.15rem 0; }
-    .species { margin: 0.45rem 0 0; }
+    .species { margin: 0.8rem 0 0; }
+    .extreme-when { color: var(--muted); font-size: 0.85rem; margin-top: 0.15rem; }
+    .missing { color: var(--temp-severe); font-weight: bold; }
+    p.missing { margin: 0 0 0.7rem; }
   </style>
 </head>
 <body>
@@ -172,23 +179,29 @@ PAGE = r"""<!DOCTYPE html>
   </div>
 
   <section>
+    <h2>Bins</h2>
+    <div id="current"></div>
+  </section>
+
+  <section>
     <h2>Minimum and maximum</h2>
     <div id="extremes"></div>
-    <p class="species">Red Wigglers (Eisenia fetida): ideal 65°F – 77°F (tolerates 39°F – 90°F).</p>
-    <ul class="temp-key">
-      <li><span class="temp-ideal">Ideal</span> is 65–77°F.</li>
-      <li><span class="temp-caution">Tolerable</span> is outside that ideal, at 50–65°F or 77–85°F.</li>
-      <li><span class="temp-stress">Stress</span> is cold stress below 50°F, or heat stress above 85°F.</li>
-      <li><span class="temp-severe">Outside tolerance</span> is below 39°F or above 90°F.</li>
-      <li><span class="temp-fatal">Freezing</span> is 32°F or below. A frozen bin can be fatal.</li>
-    </ul>
-    <p class="wait">Broader vermiculture limits: ideal 60–77°F (15–25°C), survival 40–90°F (4–32°C).</p>
+    <p class="wait">For the selected time range.</p>
   </section>
 
   <section>
     <h2>Temperature</h2>
     <div class="plot" id="temp-plot"></div>
     <div class="legend" id="temp-legend"></div>
+    <p class="species">Red Wigglers (Eisenia fetida): ideal 65°F – 77°F (tolerates 39°F – 90°F).</p>
+    <ul class="temp-key">
+      <li><span class="temp-ideal">Ideal</span> is 65–77°F. The chart shades this band.</li>
+      <li><span class="temp-caution">Tolerable</span> is outside that ideal, at 50–65°F or 77–85°F.</li>
+      <li><span class="temp-stress">Stress</span> is cold stress below 50°F, or heat stress above 85°F. Dashed lines mark 50°F and 85°F.</li>
+      <li><span class="temp-severe">Outside tolerance</span> is below 39°F or above 90°F.</li>
+      <li><span class="temp-fatal">Freezing</span> is 32°F or below. A frozen bin can be fatal.</li>
+    </ul>
+    <p class="wait">Broader vermiculture limits: ideal 60–77°F (15–25°C), survival 40–90°F (4–32°C). A bin with no reading for 3 minutes is marked missing.</p>
   </section>
 
   <section id="moisture-panel" hidden>
@@ -215,6 +228,7 @@ PAGE = r"""<!DOCTYPE html>
     const SHOW_MOISTURE = false;
     const RANGE_MS = {"1h": 60 * 60 * 1000, "6h": 6 * 60 * 60 * 1000, "24h": 24 * 60 * 60 * 1000};
     const GAP_MS = 3 * 60 * 1000;
+    const STALE_MS = 3 * 60 * 1000;
 
     let readings = [];
     let rangeKey = "24h";
@@ -279,6 +293,10 @@ PAGE = r"""<!DOCTYPE html>
 
     function fahrenheit(celsius) {
       return celsius * 9 / 5 + 32;
+    }
+
+    function celsiusFromFahrenheit(fahrenheitValue) {
+      return (fahrenheitValue - 32) * 5 / 9;
     }
 
     function tempBand(celsius) {
@@ -509,13 +527,22 @@ PAGE = r"""<!DOCTYPE html>
       if (opts.domain) {
         min = opts.domain[0];
         max = opts.domain[1];
-      } else if (!(max > min)) {
-        min -= opts.minPad;
-        max += opts.minPad;
       } else {
-        const pad = Math.max((max - min) * 0.12, opts.minPad);
-        min -= pad;
-        max += pad;
+        if (opts.guides) {
+          [opts.guides.idealLow, opts.guides.idealHigh, ...opts.guides.lines].forEach(celsius => {
+            const shown = opts.value({v: celsius});
+            if (shown < min) min = shown;
+            if (shown > max) max = shown;
+          });
+        }
+        if (!(max > min)) {
+          min -= opts.minPad;
+          max += opts.minPad;
+        } else {
+          const pad = Math.max((max - min) * 0.08, opts.minPad);
+          min -= pad;
+          max += pad;
+        }
       }
       if (!(max > min)) {
         min -= 1;
@@ -538,6 +565,35 @@ PAGE = r"""<!DOCTYPE html>
       svg.setAttribute("viewBox", "0 0 " + width + " " + height);
       svg.setAttribute("role", "img");
       svg.setAttribute("aria-label", opts.aria);
+
+      if (opts.guides) {
+        const bandTop = yOf(opts.value({v: opts.guides.idealHigh}));
+        const bandBottom = yOf(opts.value({v: opts.guides.idealLow}));
+        const band = svgEl("rect");
+        band.setAttribute("x", margin.left);
+        band.setAttribute("y", Math.min(bandTop, bandBottom));
+        band.setAttribute("width", innerW);
+        band.setAttribute("height", Math.max(1, Math.abs(bandBottom - bandTop)));
+        band.setAttribute("fill", cssVar("--ideal-band"));
+        svg.append(band);
+        opts.guides.lines.forEach(celsius => {
+          const y = yOf(opts.value({v: celsius}));
+          const line = svgEl("line");
+          line.setAttribute("x1", margin.left);
+          line.setAttribute("x2", margin.left + innerW);
+          line.setAttribute("y1", y);
+          line.setAttribute("y2", y);
+          line.setAttribute("stroke", cssVar("--guide"));
+          line.setAttribute("stroke-dasharray", "5 4");
+          svg.append(line);
+          const label = svgEl("text");
+          label.setAttribute("x", margin.left + innerW - 6);
+          label.setAttribute("y", Math.max(margin.top + 12, y - 5));
+          label.setAttribute("text-anchor", "end");
+          label.textContent = Math.round(fahrenheit(celsius)) + "°F";
+          svg.append(label);
+        });
+      }
 
       const defs = svgEl("defs");
       const clip = svgEl("clipPath");
@@ -788,6 +844,116 @@ PAGE = r"""<!DOCTYPE html>
         + " · " + readings.length + " readings stored";
     }
 
+    function formatAge(ms) {
+      const minutes = Math.max(1, Math.round(ms / 60000));
+      if (minutes < 60) return minutes === 1 ? "1 minute ago" : minutes + " minutes ago";
+      const hours = Math.floor(minutes / 60);
+      const rest = minutes % 60;
+      if (hours < 48) return rest ? hours + " h " + rest + " min ago" : hours + " h ago";
+      const days = Math.floor(hours / 24);
+      return days === 1 ? "1 day ago" : days + " days ago";
+    }
+
+    function joinNames(names) {
+      if (names.length <= 1) return names[0] || "";
+      if (names.length === 2) return names[0] + " and " + names[1];
+      return names.slice(0, -1).join(", ") + ", and " + names[names.length - 1];
+    }
+
+    function binOverview() {
+      const series = tempSeries(readings);
+      const byKey = new Map(series.map(item => [item.key, item]));
+      const rows = Object.entries(PROBE_NAMES).map(([address, name]) => {
+        const key = "addr:" + address;
+        return byKey.get(key) || {key: key, label: name, points: []};
+      });
+      series.forEach(item => {
+        if (!rows.some(row => row.key === item.key)) rows.push(item);
+      });
+      return rows;
+    }
+
+    function isStale(point) {
+      return !point || Date.now() - point.t > STALE_MS;
+    }
+
+    function renderCurrent() {
+      const root = document.getElementById("current");
+      root.replaceChildren();
+      const rows = binOverview();
+      if (!rows.length) {
+        const waiting = note("Waiting for the ESP32. It posts about every 15 seconds.");
+        waiting.className = "wait";
+        root.append(waiting);
+        return;
+      }
+      const quiet = rows.filter(row => isStale(row.points[row.points.length - 1]));
+      if (quiet.length) {
+        const warning = note(
+          joinNames(quiet.map(row => row.label))
+          + (quiet.length === 1 ? " has" : " have")
+          + " not reported in the last 3 minutes."
+        );
+        warning.className = "missing";
+        root.append(warning);
+      }
+      const table = document.createElement("table");
+      const head = document.createElement("tr");
+      ["Bin", "Temperature", "Last report"].forEach(text => head.append(el("th", text)));
+      const thead = document.createElement("thead");
+      thead.append(head);
+      const tbody = document.createElement("tbody");
+      rows.forEach(row => {
+        const last = row.points[row.points.length - 1];
+        const tr = document.createElement("tr");
+        tr.append(el("td", row.label));
+        const temperature = document.createElement("td");
+        const reported = document.createElement("td");
+        if (!last) {
+          const missing = el("span", "No reading yet");
+          missing.className = "wait";
+          temperature.append(missing);
+          reported.textContent = "—";
+          reported.className = "wait";
+        } else if (isStale(last)) {
+          const missing = document.createElement("div");
+          missing.className = "missing";
+          missing.textContent = "Missing";
+          const prior = document.createElement("div");
+          prior.className = "extreme-when";
+          prior.textContent = "Last value " + formatBoth(last.v);
+          temperature.append(missing, prior);
+          reported.append(el("div", formatStamp(last.t)));
+          const age = document.createElement("div");
+          age.className = "extreme-when";
+          age.textContent = formatAge(Date.now() - last.t);
+          reported.append(age);
+        } else {
+          const value = document.createElement("span");
+          value.className = tempBand(last.v);
+          value.textContent = formatBoth(last.v);
+          temperature.append(value);
+          reported.textContent = formatStamp(last.t);
+        }
+        tr.append(temperature, reported);
+        tbody.append(tr);
+      });
+      table.append(thead, tbody);
+      root.append(table);
+    }
+
+    function extremeCell(point) {
+      const cell = document.createElement("td");
+      const value = document.createElement("div");
+      value.className = tempBand(point.v);
+      value.textContent = formatTempNumber(point.v);
+      const when = document.createElement("div");
+      when.className = "extreme-when";
+      when.textContent = formatStamp(point.t);
+      cell.append(value, when);
+      return cell;
+    }
+
     function renderExtremes() {
       const root = document.getElementById("extremes");
       root.replaceChildren();
@@ -800,7 +966,7 @@ PAGE = r"""<!DOCTYPE html>
       }
       const table = document.createElement("table");
       const head = document.createElement("tr");
-      ["Probe", "Minimum", "Maximum"].forEach(text => head.append(el("th", text)));
+      ["Bin", "Minimum", "Maximum"].forEach(text => head.append(el("th", text)));
       const thead = document.createElement("thead");
       thead.append(head);
       const tbody = document.createElement("tbody");
@@ -812,7 +978,7 @@ PAGE = r"""<!DOCTYPE html>
           if (point.v > max.v) max = point;
         });
         const row = document.createElement("tr");
-        row.append(el("td", item.label), tempCell(formatTempNumber(min.v), min.v), tempCell(formatTempNumber(max.v), max.v));
+        row.append(el("td", item.label), extremeCell(min), extremeCell(max));
         tbody.append(row);
       });
       table.append(thead, tbody);
@@ -820,6 +986,7 @@ PAGE = r"""<!DOCTYPE html>
     }
 
     function renderCharts() {
+      renderCurrent();
       renderExtremes();
       const shown = inRange(readings);
       const temperatures = tempSeries(shown);
@@ -831,7 +998,12 @@ PAGE = r"""<!DOCTYPE html>
         hidden: hiddenTemp,
         minPad: tempUnit === "F" ? 1 : 0.5,
         value: point => tempNumber(point.v),
-        format: point => formatTempNumber(point.v)
+        format: point => formatTempNumber(point.v),
+        guides: {
+          idealLow: celsiusFromFahrenheit(65),
+          idealHigh: celsiusFromFahrenheit(77),
+          lines: [celsiusFromFahrenheit(50), celsiusFromFahrenheit(85)]
+        }
       });
 
       const panel = document.getElementById("moisture-panel");
