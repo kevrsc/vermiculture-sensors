@@ -244,10 +244,10 @@ PAGE = r"""<!DOCTYPE html>
     const DAY_COLORS = ["#9a4e32", "#2f6d4f", "#2d5f86", "#b0792b", "#6d4b8a"];
     const NIGHT_COLORS = ["#e08a62", "#7dcea0", "#8ec3e6", "#e2b86a", "#d2b0ea"];
     const PROBE_NAMES = {
-      "288201d3000000de": "Mo",
-      "28107bd400000057": "Curly",
+      "2813f8d500000004": "Larry",
       "284df1d600000042": "Harry",
-      "2813f8d500000004": "Larry"
+      "28107bd400000057": "Curly",
+      "288201d3000000de": "Mo"
     };
     // Set this to true when the soil-moisture probes are connected.
     const SHOW_MOISTURE = false;
@@ -803,7 +803,15 @@ PAGE = r"""<!DOCTYPE html>
         const thead = document.createElement("thead");
         thead.append(head);
         const tbody = document.createElement("tbody");
-        sensors.forEach(sensor => {
+        sensors.slice().sort((a, b) => {
+          const order = Object.keys(PROBE_NAMES);
+          const ai = order.indexOf(a.address ? String(a.address).toLowerCase() : "");
+          const bi = order.indexOf(b.address ? String(b.address).toLowerCase() : "");
+          const an = ai === -1 ? order.length : ai;
+          const bn = bi === -1 ? order.length : bi;
+          if (an !== bn) return an - bn;
+          return (a.index == null ? 0 : a.index) - (b.index == null ? 0 : b.index);
+        }).forEach(sensor => {
           const row = document.createElement("tr");
           row.append(
             el("td", sensor.index == null ? "" : String(sensor.index)),
