@@ -925,10 +925,19 @@ PAGE = r"""<!DOCTYPE html>
 """
 
 
+def gateway() -> str:
+    """Address used only to ask the OS which local interface would reach it."""
+    try:
+        from config import GATEWAY
+    except ImportError:
+        return "8.8.8.8"
+    return str(GATEWAY)
+
+
 def lan_ip() -> str:
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        probe.connect(("8.8.8.8", 80))
+        probe.connect((gateway(), 80))
         return probe.getsockname()[0]
     except OSError:
         return "127.0.0.1"

@@ -1,4 +1,5 @@
 secrets.h
+server/config.py
 server/readings.jsonl
 __pycache__/
 *.pyc
