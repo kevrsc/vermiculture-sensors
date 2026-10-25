@@ -19,23 +19,68 @@ PAGE = r"""<!DOCTYPE html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vermiculture sensors</title>
+  <script>
+    try {
+      if (localStorage.getItem("vermiculture-theme") === "night") document.documentElement.classList.add("night");
+    } catch (err) {}
+  </script>
   <style>
     * { box-sizing: border-box; }
+    :root {
+      color-scheme: light;
+      --ink: #1c1915;
+      --paper: #fbf8f4;
+      --surface: #fff;
+      --line: #ddd6cc;
+      --plot-border: #e4dcd2;
+      --muted: #6b6258;
+      --grid: #e6dfd6;
+      --crosshair: #1c1915;
+      --marker-ring: #fff;
+      --tip-bg: #1c1915;
+      --tip-ink: #f6f1ea;
+      --tip-when: #d9cfc3;
+      --temp-ideal: #1b7a34;
+      --temp-caution: #8a5a00;
+      --temp-stress: #c45c12;
+      --temp-severe: #c41919;
+      --temp-fatal: #7a1020;
+    }
+    :root.night {
+      color-scheme: dark;
+      --ink: #f3ece3;
+      --paper: #1c1814;
+      --surface: #26211c;
+      --line: #3f362e;
+      --plot-border: #4a4036;
+      --muted: #b3a79b;
+      --grid: #3a332c;
+      --crosshair: #f3ece3;
+      --marker-ring: #26211c;
+      --tip-bg: #3a322b;
+      --tip-ink: #f6f1ea;
+      --tip-when: #d9cfc3;
+      --temp-ideal: #7dcea0;
+      --temp-caution: #e2b86a;
+      --temp-stress: #ffb067;
+      --temp-severe: #ff8b7a;
+      --temp-fatal: #ff6b8a;
+    }
     body {
       font-family: Georgia, serif;
       margin: 2rem auto 3rem;
       max-width: 58rem;
       padding: 0 1.25rem;
-      color: #1c1915;
-      background: #fbf8f4;
+      color: var(--ink);
+      background: var(--paper);
     }
     h1 { font-weight: normal; font-size: 1.6rem; margin-bottom: 0.4rem; }
     h2 { font-weight: normal; font-size: 1.15rem; margin: 0 0 0.7rem; }
     h3 { font-weight: normal; font-size: 1.05rem; margin: 1.1rem 0 0.45rem; }
-    table { border-collapse: collapse; width: 100%; background: #fff; }
-    th, td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid #ddd6cc; }
+    table { border-collapse: collapse; width: 100%; background: var(--surface); }
+    th, td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--line); }
     code { font-family: Consolas, monospace; }
-    .wait { color: #6b6258; }
+    .wait { color: var(--muted); }
     .toolbar {
       display: flex;
       flex-wrap: wrap;
@@ -44,30 +89,31 @@ PAGE = r"""<!DOCTYPE html>
       justify-content: space-between;
       margin: 1rem 0 1.25rem;
     }
+    .toolbar-end { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
     .ranges { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-    button { font: inherit; color: #1c1915; }
-    button:focus-visible { outline: 2px solid #1c1915; outline-offset: 2px; }
+    button { font: inherit; color: var(--ink); }
+    button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
     .ranges button {
       background: transparent;
-      border: 1px solid #ddd6cc;
+      border: 1px solid var(--line);
       padding: 0.28rem 0.7rem;
       cursor: pointer;
     }
-    .ranges button:hover { border-color: #1c1915; }
+    .ranges button:hover { border-color: var(--ink); }
     .ranges button[aria-pressed="true"] {
-      background: #1c1915;
-      border-color: #1c1915;
-      color: #fbf8f4;
+      background: var(--ink);
+      border-color: var(--ink);
+      color: var(--paper);
     }
     section { margin-top: 1.5rem; }
     .plot {
       position: relative;
       height: 320px;
-      background: #fff;
-      border: 1px solid #e4dcd2;
+      background: var(--surface);
+      border: 1px solid var(--plot-border);
     }
     .plot svg { width: 100%; height: 320px; display: block; cursor: crosshair; }
-    .plot text { font-family: Georgia, serif; font-size: 12px; fill: #6b6258; }
+    .plot text { font-family: Georgia, serif; font-size: 12px; fill: var(--muted); }
     .plot .wait { margin: 0; padding: 8.5rem 1rem 0; text-align: center; }
     .legend { display: flex; flex-wrap: wrap; gap: 0.45rem 1rem; margin-top: 0.6rem; }
     .legend button {
@@ -85,15 +131,23 @@ PAGE = r"""<!DOCTYPE html>
       position: absolute;
       z-index: 2;
       pointer-events: none;
-      background: #1c1915;
-      color: #f6f1ea;
+      background: var(--tip-bg);
+      color: var(--tip-ink);
       padding: 0.45rem 0.6rem;
       font-family: Consolas, monospace;
       font-size: 0.78rem;
       line-height: 1.45;
     }
-    .tip .when { color: #d9cfc3; }
+    .tip .when { color: var(--tip-when); }
     .tip .row { display: flex; justify-content: space-between; gap: 0.9rem; }
+    .temp-ideal { color: var(--temp-ideal); }
+    .temp-caution { color: var(--temp-caution); }
+    .temp-stress { color: var(--temp-stress); font-weight: bold; }
+    .temp-severe { color: var(--temp-severe); font-weight: bold; }
+    .temp-fatal { color: var(--temp-fatal); font-weight: bold; }
+    .temp-key { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+    .temp-key li { margin: 0.15rem 0; }
+    .species { margin: 0.45rem 0 0; }
   </style>
 </head>
 <body>
@@ -106,11 +160,30 @@ PAGE = r"""<!DOCTYPE html>
       <button type="button" data-range="24h" aria-pressed="true">24 hours</button>
       <button type="button" data-range="all" aria-pressed="false">All</button>
     </div>
-    <div class="ranges" role="group" aria-label="Temperature unit">
-      <button type="button" data-unit="C" aria-pressed="true">°C</button>
-      <button type="button" data-unit="F" aria-pressed="false">°F</button>
+    <div class="toolbar-end">
+      <div class="ranges" role="group" aria-label="Temperature unit">
+        <button type="button" data-unit="C" aria-pressed="false">°C</button>
+        <button type="button" data-unit="F" aria-pressed="true">°F</button>
+      </div>
+      <div class="ranges" role="group" aria-label="Color scheme">
+        <button type="button" id="theme-toggle" aria-pressed="false">Night</button>
+      </div>
     </div>
   </div>
+
+  <section>
+    <h2>Minimum and maximum</h2>
+    <div id="extremes"></div>
+    <p class="species">Red Wigglers (Eisenia fetida): ideal 65°F – 77°F (tolerates 39°F – 90°F).</p>
+    <ul class="temp-key">
+      <li><span class="temp-ideal">Ideal</span> is 65–77°F.</li>
+      <li><span class="temp-caution">Tolerable</span> is outside that ideal, at 50–65°F or 77–85°F.</li>
+      <li><span class="temp-stress">Stress</span> is cold stress below 50°F, or heat stress above 85°F.</li>
+      <li><span class="temp-severe">Outside tolerance</span> is below 39°F or above 90°F.</li>
+      <li><span class="temp-fatal">Freezing</span> is 32°F or below. A frozen bin can be fatal.</li>
+    </ul>
+    <p class="wait">Broader vermiculture limits: ideal 60–77°F (15–25°C), survival 40–90°F (4–32°C).</p>
+  </section>
 
   <section>
     <h2>Temperature</h2>
@@ -130,13 +203,22 @@ PAGE = r"""<!DOCTYPE html>
   </section>
   <noscript><p class="wait">This page draws the graph in the browser. Enable JavaScript, then reload.</p></noscript>
   <script>
-    const COLORS = ["#9a4e32", "#2f6d4f", "#2d5f86", "#b0792b", "#6d4b8a"];
+    const DAY_COLORS = ["#9a4e32", "#2f6d4f", "#2d5f86", "#b0792b", "#6d4b8a"];
+    const NIGHT_COLORS = ["#e08a62", "#7dcea0", "#8ec3e6", "#e2b86a", "#d2b0ea"];
+    const PROBE_NAMES = {
+      "288201d3000000de": "Mo",
+      "28107bd400000057": "Curly",
+      "284df1d600000042": "Harry",
+      "2813f8d500000004": "Larry"
+    };
+    // Set this to true when the soil-moisture probes are connected.
+    const SHOW_MOISTURE = false;
     const RANGE_MS = {"1h": 60 * 60 * 1000, "6h": 6 * 60 * 60 * 1000, "24h": 24 * 60 * 60 * 1000};
     const GAP_MS = 3 * 60 * 1000;
 
     let readings = [];
     let rangeKey = "24h";
-    let tempUnit = "C";
+    let tempUnit = "F";
     const hiddenTemp = new Set();
     const hiddenMoisture = new Set();
 
@@ -183,7 +265,7 @@ PAGE = r"""<!DOCTYPE html>
       const c = finite(celsius);
       if (c == null) return "no reading";
       const f = c * 9 / 5 + 32;
-      return c.toFixed(2) + " °C (" + f.toFixed(2) + " °F)";
+      return f.toFixed(2) + " °F (" + c.toFixed(2) + " °C)";
     }
 
     function tempNumber(celsius) {
@@ -193,6 +275,27 @@ PAGE = r"""<!DOCTYPE html>
     function formatTempNumber(celsius) {
       const unit = tempUnit === "F" ? "°F" : "°C";
       return tempNumber(celsius).toFixed(2) + " " + unit;
+    }
+
+    function fahrenheit(celsius) {
+      return celsius * 9 / 5 + 32;
+    }
+
+    function tempBand(celsius) {
+      const f = Math.round(fahrenheit(celsius) * 100) / 100;
+      if (f <= 32) return "temp-fatal";
+      if (f < 39 || f > 90) return "temp-severe";
+      if (f < 50 || f > 85) return "temp-stress";
+      if (f < 65 || f > 77) return "temp-caution";
+      return "temp-ideal";
+    }
+
+    function tempCell(text, celsius) {
+      const cell = document.createElement("td");
+      cell.textContent = text;
+      const value = finite(celsius);
+      if (value != null) cell.className = tempBand(value);
+      return cell;
     }
 
     function formatPercent(point) {
@@ -225,12 +328,18 @@ PAGE = r"""<!DOCTYPE html>
       return series;
     }
 
+    function probeName(address) {
+      if (!address) return "";
+      return PROBE_NAMES[String(address).toLowerCase()] || "";
+    }
+
     function tempIdentity(sensor) {
       const address = sensor.address ? String(sensor.address) : "";
+      const name = probeName(address);
       const tail = address.length > 4 ? address.slice(-4) : address;
       return {
-        key: address ? "addr:" + address : "index:" + sensor.index,
-        label: tail ? "Probe …" + tail : "Probe " + sensor.index
+        key: address ? "addr:" + address.toLowerCase() : "index:" + sensor.index,
+        label: name || (tail ? "Probe …" + tail : "Probe " + sensor.index)
       };
     }
 
@@ -243,7 +352,17 @@ PAGE = r"""<!DOCTYPE html>
     }
 
     function tempSeries(rows) {
-      return collectSeries(rows, "sensors", tempIdentity, sensor => finite(sensor.celsius));
+      const series = collectSeries(rows, "sensors", tempIdentity, sensor => finite(sensor.celsius));
+      const order = Object.keys(PROBE_NAMES);
+      series.sort((a, b) => {
+        const ai = order.indexOf(a.key.slice(5));
+        const bi = order.indexOf(b.key.slice(5));
+        if (ai === -1 && bi === -1) return a.label.localeCompare(b.label);
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+      });
+      return series;
     }
 
     function moistureSeries(rows) {
@@ -260,10 +379,19 @@ PAGE = r"""<!DOCTYPE html>
       });
     }
 
+    function nightMode() {
+      return document.documentElement.classList.contains("night");
+    }
+
+    function cssVar(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
     function colorOf(keys) {
+      const colors = nightMode() ? NIGHT_COLORS : DAY_COLORS;
       const map = new Map();
-      [...keys].sort().forEach((key, index) => map.set(key, COLORS[index % COLORS.length]));
-      return key => map.get(key) || COLORS[0];
+      [...keys].sort().forEach((key, index) => map.set(key, colors[index % colors.length]));
+      return key => map.get(key) || colors[0];
     }
 
     function segments(points) {
@@ -430,7 +558,7 @@ PAGE = r"""<!DOCTYPE html>
         grid.setAttribute("x2", margin.left + innerW);
         grid.setAttribute("y1", y);
         grid.setAttribute("y2", y);
-        grid.setAttribute("stroke", "#e6dfd6");
+        grid.setAttribute("stroke", cssVar("--grid"));
         svg.append(grid);
         const label = svgEl("text");
         label.setAttribute("x", margin.left - 8);
@@ -496,7 +624,7 @@ PAGE = r"""<!DOCTYPE html>
       const rule = svgEl("line");
       rule.setAttribute("y1", margin.top);
       rule.setAttribute("y2", margin.top + innerH);
-      rule.setAttribute("stroke", "#1c1915");
+      rule.setAttribute("stroke", cssVar("--crosshair"));
       rule.setAttribute("stroke-width", "1");
       rule.setAttribute("visibility", "hidden");
       svg.append(rule);
@@ -544,7 +672,7 @@ PAGE = r"""<!DOCTYPE html>
           dot.setAttribute("cy", item.y);
           dot.setAttribute("r", "4");
           dot.setAttribute("fill", item.color);
-          dot.setAttribute("stroke", "#fff");
+          dot.setAttribute("stroke", cssVar("--marker-ring"));
           dot.setAttribute("stroke-width", "1.5");
           markerLayer.append(dot);
         });
@@ -590,23 +718,28 @@ PAGE = r"""<!DOCTYPE html>
       } else {
         const table = document.createElement("table");
         const head = document.createElement("tr");
-        ["#", "Probe", "Temperature"].forEach(text => head.append(el("th", text)));
+        ["#", "Name", "Temperature", "Probe"].forEach(text => head.append(el("th", text)));
         const thead = document.createElement("thead");
         thead.append(head);
         const tbody = document.createElement("tbody");
         sensors.forEach(sensor => {
           const row = document.createElement("tr");
-          row.append(el("td", sensor.index == null ? "" : String(sensor.index)));
+          row.append(
+            el("td", sensor.index == null ? "" : String(sensor.index)),
+            el("td", probeName(sensor.address))
+          );
           const address = document.createElement("td");
           const code = document.createElement("code");
           code.textContent = sensor.address || "";
           address.append(code);
-          row.append(address, el("td", formatBoth(sensor.celsius)));
+          row.append(tempCell(formatBoth(sensor.celsius), sensor.celsius), address);
           tbody.append(row);
         });
         table.append(thead, tbody);
         root.append(table);
       }
+
+      if (!SHOW_MOISTURE) return;
 
       root.append(el("h3", "Soil moisture"));
       const moisture = Array.isArray(reading.moisture) ? reading.moisture : [];
@@ -655,7 +788,39 @@ PAGE = r"""<!DOCTYPE html>
         + " · " + readings.length + " readings stored";
     }
 
+    function renderExtremes() {
+      const root = document.getElementById("extremes");
+      root.replaceChildren();
+      const series = tempSeries(inRange(readings));
+      if (!series.length) {
+        const empty = note("No temperature readings in this range.");
+        empty.className = "wait";
+        root.append(empty);
+        return;
+      }
+      const table = document.createElement("table");
+      const head = document.createElement("tr");
+      ["Probe", "Minimum", "Maximum"].forEach(text => head.append(el("th", text)));
+      const thead = document.createElement("thead");
+      thead.append(head);
+      const tbody = document.createElement("tbody");
+      series.forEach(item => {
+        let min = item.points[0];
+        let max = item.points[0];
+        item.points.forEach(point => {
+          if (point.v < min.v) min = point;
+          if (point.v > max.v) max = point;
+        });
+        const row = document.createElement("tr");
+        row.append(el("td", item.label), tempCell(formatTempNumber(min.v), min.v), tempCell(formatTempNumber(max.v), max.v));
+        tbody.append(row);
+      });
+      table.append(thead, tbody);
+      root.append(table);
+    }
+
     function renderCharts() {
+      renderExtremes();
       const shown = inRange(readings);
       const temperatures = tempSeries(shown);
       const paintTemp = colorOf(tempSeries(readings).map(item => item.key));
@@ -669,9 +834,9 @@ PAGE = r"""<!DOCTYPE html>
         format: point => formatTempNumber(point.v)
       });
 
-      const moistureAll = moistureSeries(readings);
       const panel = document.getElementById("moisture-panel");
-      panel.hidden = !moistureAll.some(item => item.points.length);
+      const moistureAll = SHOW_MOISTURE ? moistureSeries(readings) : [];
+      panel.hidden = !SHOW_MOISTURE || !moistureAll.some(item => item.points.length);
       if (!panel.hidden) {
         drawChart(document.getElementById("moisture-plot"), document.getElementById("moisture-legend"), moistureSeries(shown), colorOf(moistureAll.map(item => item.key)), {
           empty: "No soil-moisture readings in this range.",
@@ -729,6 +894,24 @@ PAGE = r"""<!DOCTYPE html>
         renderCharts();
       });
     });
+
+    function syncThemeButton() {
+      const button = document.getElementById("theme-toggle");
+      const night = nightMode();
+      button.setAttribute("aria-pressed", night ? "true" : "false");
+      button.textContent = night ? "Day" : "Night";
+      button.setAttribute("aria-label", night ? "Switch to day mode" : "Switch to night mode");
+    }
+
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+      document.documentElement.classList.toggle("night");
+      try {
+        localStorage.setItem("vermiculture-theme", nightMode() ? "night" : "day");
+      } catch (err) {}
+      syncThemeButton();
+      renderCharts();
+    });
+    syncThemeButton();
 
     window.addEventListener("resize", renderCharts);
     document.addEventListener("visibilitychange", () => {

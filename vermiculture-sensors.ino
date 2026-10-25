@@ -2,22 +2,27 @@
 #include <HTTPClient.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <esp32-hal-bt.h>
+#include <esp_bt.h>
 #include "secrets.h"
 
 #define ONE_WIRE_BUS 4
 #define POST_INTERVAL_MS 15000
+#define KEEPALIVE_INTERVAL_MS (30UL * 60UL * 1000UL)
+#define KEEPALIVE_PULSE_MS 3000UL
 
 // Capacitive soil-moisture probes. Wi-Fi uses ADC2, so these must be ADC1
 // pins: 32, 33, 34, 35, 36, 39. GPIO 4 stays the temperature bus.
 // This first probe is GPIO 32. Append 33, 34, and 35 for the other three.
-const int MOISTURE_PINS[] = {32};
+// const int MOISTURE_PINS[] = {32, 33, 34, 35};
+const int MOISTURE_PINS[] = {35};
 const int MOISTURE_COUNT = sizeof(MOISTURE_PINS) / sizeof(MOISTURE_PINS[0]);
 
 // Replace these with the raw values printed while the probe is in air (dry)
 // and in water (wet). Keep the circuit board above the water line.
 // A higher raw value is drier. Percent is 0 at the dry value and 100 at the wet value.
-const int MOISTURE_DRY_RAW = 2700;
-const int MOISTURE_WET_RAW = 1200;
+const int MOISTURE_DRY_RAW = 3490; // 2700;
+const int MOISTURE_WET_RAW = 1565; // 1200;
 
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
@@ -29,7 +34,6 @@ void connectWifi() {
   }
 
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
@@ -155,6 +159,26 @@ bool postReading(const String &body) {
   return status >= 200 && status < 300;
 }
 
+unsigned long lastKeepaliveMs = 0;
+
+void bluetoothKeepalive() {
+  unsigned long now = millis();
+  if (lastKeepaliveMs != 0 && now - lastKeepaliveMs < KEEPALIVE_INTERVAL_MS) {
+    return;
+  }
+  lastKeepaliveMs = now;
+
+  Serial.println("Bluetooth keepalive pulse");
+  if (!btStartMode(BT_MODE_BLE)) {
+    Serial.println("Bluetooth keepalive failed");
+    return;
+  }
+  esp_bt_sleep_disable();
+  delay(KEEPALIVE_PULSE_MS);
+  btStop();
+  Serial.println("Bluetooth keepalive done");
+}
+
 void setup() {
   Serial.begin(115200);
   delay(500);
@@ -185,6 +209,7 @@ void loop() {
   }
 
   connectWifi();
+  bluetoothKeepalive();
   String body = readingJson();
   Serial.println(body);
   if (!postReading(body)) {
