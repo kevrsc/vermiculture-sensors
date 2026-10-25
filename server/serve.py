@@ -178,8 +178,8 @@ PAGE = r"""<!DOCTYPE html>
   <div class="toolbar">
     <div class="ranges" role="group" aria-label="Time range">
       <button type="button" data-range="1h" aria-pressed="false">1 hour</button>
-      <button type="button" data-range="6h" aria-pressed="false">6 hours</button>
-      <button type="button" data-range="24h" aria-pressed="true">24 hours</button>
+      <button type="button" data-range="8h" aria-pressed="true">8 hours</button>
+      <button type="button" data-range="24h" aria-pressed="false">24 hours</button>
       <button type="button" data-range="all" aria-pressed="false">All</button>
     </div>
     <div class="toolbar-end">
@@ -251,12 +251,12 @@ PAGE = r"""<!DOCTYPE html>
     };
     // Set this to true when the soil-moisture probes are connected.
     const SHOW_MOISTURE = false;
-    const RANGE_MS = {"1h": 60 * 60 * 1000, "6h": 6 * 60 * 60 * 1000, "24h": 24 * 60 * 60 * 1000};
+    const RANGE_MS = {"1h": 60 * 60 * 1000, "8h": 8 * 60 * 60 * 1000, "24h": 24 * 60 * 60 * 1000};
     const GAP_MS = 3 * 60 * 1000;
     const STALE_MS = 3 * 60 * 1000;
 
     let readings = [];
-    let rangeKey = "24h";
+    let rangeKey = "8h";
     let tempUnit = "F";
     let showThresholds = true;
     const hiddenTemp = new Set();
@@ -305,7 +305,7 @@ PAGE = r"""<!DOCTYPE html>
       const c = finite(celsius);
       if (c == null) return "no reading";
       const f = c * 9 / 5 + 32;
-      return f.toFixed(2) + " °F (" + c.toFixed(2) + " °C)";
+      return Math.round(f) + " °F (" + Math.round(c) + " °C)";
     }
 
     function tempNumber(celsius) {
@@ -314,7 +314,7 @@ PAGE = r"""<!DOCTYPE html>
 
     function formatTempNumber(celsius) {
       const unit = tempUnit === "F" ? "°F" : "°C";
-      return tempNumber(celsius).toFixed(2) + " " + unit;
+      return Math.round(tempNumber(celsius)) + " " + unit;
     }
 
     function fahrenheit(celsius) {
@@ -326,7 +326,7 @@ PAGE = r"""<!DOCTYPE html>
     }
 
     function tempBand(celsius) {
-      const f = Math.round(fahrenheit(celsius) * 100) / 100;
+      const f = Math.round(fahrenheit(celsius));
       if (f <= 32) return "temp-fatal";
       if (f < 39 || f > 90) return "temp-severe";
       if (f < 50 || f > 85) return "temp-stress";
@@ -344,7 +344,7 @@ PAGE = r"""<!DOCTYPE html>
 
     function formatPercent(point) {
       const value = point.v;
-      const shown = Number.isInteger(value) ? String(value) : value.toFixed(1);
+      const shown = String(Math.round(value));
       const raw = finite(point.raw);
       return raw == null ? shown + "%" : shown + "% · raw " + raw;
     }
@@ -487,14 +487,15 @@ PAGE = r"""<!DOCTYPE html>
       return [min, max];
     }
 
-    function niceTicks(min, max) {
+    function niceTicks(min, max, minStep) {
       const span = max - min;
       if (!(span > 0)) return [min];
       const rough = span / 4;
       const mag = 10 ** Math.floor(Math.log10(rough));
       const residual = rough / mag;
       const nice = residual >= 7.5 ? 10 : residual >= 3.5 ? 5 : residual >= 1.5 ? 2 : 1;
-      const step = nice * mag;
+      let step = nice * mag;
+      if (minStep && step < minStep) step = minStep;
       const start = Math.ceil(min / step - 1e-9) * step;
       const ticks = [];
       for (let i = 0; i < 6; i++) {
@@ -575,9 +576,7 @@ PAGE = r"""<!DOCTYPE html>
         max += 1;
       }
 
-      const span = max - min;
-      const places = opts.axisPlaces != null ? opts.axisPlaces : span >= 20 ? 0 : span >= 2 ? 1 : 2;
-      const yText = value => value.toFixed(places);
+      const yText = value => String(Math.round(value));
       const margin = {top: 16, right: 16, bottom: 36, left: Math.max(52, 18 + yText(max).length * 8)};
       const innerW = Math.max(10, width - margin.left - margin.right);
       const innerH = height - margin.top - margin.bottom;
@@ -633,7 +632,7 @@ PAGE = r"""<!DOCTYPE html>
       defs.append(clip);
       svg.append(defs);
 
-      niceTicks(min, max).forEach(tick => {
+      niceTicks(min, max, 1).forEach(tick => {
         const y = yOf(tick);
         const grid = svgEl("line");
         grid.setAttribute("x1", margin.left);
@@ -886,6 +885,21 @@ PAGE = r"""<!DOCTYPE html>
       return names.slice(0, -1).join(", ") + ", and " + names[names.length - 1];
     }
 
+    function probeIndexes() {
+      const indexes = new Map();
+      for (let i = readings.length - 1; i >= 0; i--) {
+        const sensors = readings[i].sensors;
+        if (!Array.isArray(sensors)) continue;
+        sensors.forEach(sensor => {
+          if (sensor.index == null) return;
+          const address = sensor.address ? String(sensor.address).toLowerCase() : "";
+          const key = address ? "addr:" + address : "index:" + sensor.index;
+          if (!indexes.has(key)) indexes.set(key, sensor.index);
+        });
+      }
+      return indexes;
+    }
+
     function binOverview() {
       const series = tempSeries(readings);
       const byKey = new Map(series.map(item => [item.key, item]));
@@ -925,14 +939,16 @@ PAGE = r"""<!DOCTYPE html>
       }
       const table = document.createElement("table");
       const head = document.createElement("tr");
-      ["Bin", "Temperature", "Last report"].forEach(text => head.append(el("th", text)));
+      ["#", "Bin", "Temperature", "Last report"].forEach(text => head.append(el("th", text)));
       const thead = document.createElement("thead");
       thead.append(head);
       const tbody = document.createElement("tbody");
+      const indexes = probeIndexes();
       rows.forEach(row => {
         const last = row.points[row.points.length - 1];
         const tr = document.createElement("tr");
-        tr.append(el("td", row.label));
+        const index = indexes.has(row.key) ? String(indexes.get(row.key)) : "—";
+        tr.append(el("td", index), el("td", row.label));
         const temperature = document.createElement("td");
         const reported = document.createElement("td");
         if (!last) {
@@ -947,7 +963,7 @@ PAGE = r"""<!DOCTYPE html>
           missing.textContent = "Missing";
           const prior = document.createElement("div");
           prior.className = "extreme-when";
-          prior.textContent = "Last value " + formatBoth(last.v);
+          prior.textContent = "Last value " + formatTempNumber(last.v);
           temperature.append(missing, prior);
           reported.append(el("div", formatStamp(last.t)));
           const age = document.createElement("div");
@@ -957,7 +973,7 @@ PAGE = r"""<!DOCTYPE html>
         } else {
           const value = document.createElement("span");
           value.className = tempBand(last.v);
-          value.textContent = formatBoth(last.v);
+          value.textContent = formatTempNumber(last.v);
           temperature.append(value);
           reported.textContent = formatStamp(last.t);
         }
@@ -1022,7 +1038,7 @@ PAGE = r"""<!DOCTYPE html>
         aria: "Temperature over time",
         clipId: "clip-temp",
         hidden: hiddenTemp,
-        minPad: tempUnit === "F" ? 1 : 0.5,
+        minPad: 1,
         value: point => tempNumber(point.v),
         format: point => formatTempNumber(point.v),
         guides: showThresholds ? {
@@ -1042,7 +1058,6 @@ PAGE = r"""<!DOCTYPE html>
           clipId: "clip-moisture",
           hidden: hiddenMoisture,
           domain: [0, 100],
-          axisPlaces: 0,
           minPad: 1,
           value: point => point.v,
           format: formatPercent

@@ -10,8 +10,11 @@
 
 #define ONE_WIRE_BUS 4
 #define POST_INTERVAL_MS 15000
-#define KEEPALIVE_INTERVAL_MS (4UL * 60UL * 1000UL)
+#define KEEPALIVE_INTERVAL_MS (60UL * 60UL * 1000UL)
 #define KEEPALIVE_PULSE_MS 10000UL
+
+// Set this to true to pulse Bluetooth on KEEPALIVE_INTERVAL_MS.
+const bool BLUETOOTH_KEEPALIVE_ENABLED = false;
 
 // Set this to true after the capacitive moisture probes are wired.
 const bool MOISTURE_ENABLED = false;
@@ -169,7 +172,7 @@ String statusJson(int probeCount) {
   status += ",\"sketch_md5\":\"";
   status += ESP.getSketchMD5();
   status += "\",\"keepalive\":\"";
-  status += keepaliveResult;
+  status += BLUETOOTH_KEEPALIVE_ENABLED ? keepaliveResult : "disabled";
   status += "\",\"keepalive_age_ms\":";
   if (lastKeepaliveMs == 0) {
     status += "null";
@@ -255,6 +258,10 @@ bool postReading(const String &body) {
 }
 
 void bluetoothKeepalive() {
+  if (!BLUETOOTH_KEEPALIVE_ENABLED) {
+    return;
+  }
+
   unsigned long now = millis();
   if (lastKeepaliveMs != 0 && now - lastKeepaliveMs < KEEPALIVE_INTERVAL_MS) {
     return;
