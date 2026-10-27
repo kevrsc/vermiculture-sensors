@@ -3,3 +3,4 @@ server/config.py
 server/readings.jsonl
 __pycache__/
 *.pyc
+web_page_gz.h

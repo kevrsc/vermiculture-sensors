@@ -6,31 +6,17 @@
 #include <DallasTemperature.h>
 #include <esp32-hal-bt.h>
 #include <esp_bt.h>
+#include <math.h>
 #include "secrets.h"
+#include "sensor_server.h"
 
 #define ONE_WIRE_BUS 4
-#define POST_INTERVAL_MS 15000
+#define POST_INTERVAL_MS (15UL * 60UL * 1000UL)
 #define KEEPALIVE_INTERVAL_MS (60UL * 60UL * 1000UL)
 #define KEEPALIVE_PULSE_MS 10000UL
 
 // Set this to true to pulse Bluetooth on KEEPALIVE_INTERVAL_MS.
 const bool BLUETOOTH_KEEPALIVE_ENABLED = false;
-
-// Set this to true after the capacitive moisture probes are wired.
-const bool MOISTURE_ENABLED = false;
-
-// Capacitive soil-moisture probes. Wi-Fi uses ADC2, so these must be ADC1
-// pins: 32, 33, 34, 35, 36, 39. GPIO 4 stays the temperature bus.
-// This first probe is GPIO 32. Append 33, 34, and 35 for the other three.
-// const int MOISTURE_PINS[] = {32, 33, 34, 35};
-const int MOISTURE_PINS[] = {35};
-const int MOISTURE_COUNT = sizeof(MOISTURE_PINS) / sizeof(MOISTURE_PINS[0]);
-
-// Replace these with the raw values printed while the probe is in air (dry)
-// and in water (wet). Keep the circuit board above the water line.
-// A higher raw value is drier. Percent is 0 at the dry value and 100 at the wet value.
-const int MOISTURE_DRY_RAW = 3490; // 2700;
-const int MOISTURE_WET_RAW = 1565; // 1200;
 
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
@@ -111,32 +97,6 @@ String sensorAddress(DeviceAddress address) {
   return text;
 }
 
-int readMoistureRaw(int pin) {
-  analogRead(pin);
-  long sum = 0;
-  const int samples = 16;
-  for (int i = 0; i < samples; i++) {
-    sum += analogRead(pin);
-    delay(2);
-  }
-  return (int)(sum / samples);
-}
-
-int moisturePercent(int raw) {
-  int span = MOISTURE_DRY_RAW - MOISTURE_WET_RAW;
-  if (span == 0) {
-    return 0;
-  }
-  long percent = (long)(MOISTURE_DRY_RAW - raw) * 100L / span;
-  if (percent < 0) {
-    return 0;
-  }
-  if (percent > 100) {
-    return 100;
-  }
-  return (int)percent;
-}
-
 String statusJson(int probeCount) {
   String status = "\"status\":{";
   status += "\"uptime_ms\":";
@@ -185,10 +145,28 @@ String statusJson(int probeCount) {
   return status;
 }
 
-String readingJson() {
+int16_t centiCelsius(float celsius) {
+  if (celsius == DEVICE_DISCONNECTED_C) {
+    return INT16_MIN;
+  }
+  float scaled = celsius * 100.0f;
+  if (scaled > 32766.0f || scaled < -32767.0f) {
+    return INT16_MIN;
+  }
+  return (int16_t)lroundf(scaled);
+}
+
+String readingJson(ReadingSample &sample) {
+  sensorBlankSample(sample);
   sensors.requestTemperatures();
   int count = sensors.getDeviceCount();
   String body = "{\"device\":\"vermiculture-esp32\",\"sensors\":[";
+
+  int kept = count;
+  if (kept > SENSOR_SERVER_MAX_PROBES) {
+    kept = SENSOR_SERVER_MAX_PROBES;
+  }
+  sample.probeCount = kept;
 
   for (int i = 0; i < count; i++) {
     if (i > 0) {
@@ -197,40 +175,37 @@ String readingJson() {
     DeviceAddress address;
     sensors.getAddress(address, i);
     float celsius = sensors.getTempC(address);
+    int16_t centi = centiCelsius(celsius);
+    if (i < SENSOR_SERVER_MAX_PROBES) {
+      memcpy(sample.probes[i].address, address, 8);
+      sample.probes[i].celsiusX100 = centi;
+    }
     body += "{\"index\":";
     body += i;
     body += ",\"address\":\"";
     body += sensorAddress(address);
     body += "\",\"celsius\":";
-    if (celsius == DEVICE_DISCONNECTED_C) {
-      body += "null";
+    char temp[16];
+    if (sensorFormatCenti(centi, temp, sizeof(temp))) {
+      body += temp;
     } else {
-      body += String(celsius, 2);
+      body += "null";
     }
     body += "}";
   }
 
-  body += "],\"moisture\":[";
-  if (MOISTURE_ENABLED) {
-    for (int i = 0; i < MOISTURE_COUNT; i++) {
-      if (i > 0) {
-        body += ",";
-      }
-      int raw = readMoistureRaw(MOISTURE_PINS[i]);
-      body += "{\"index\":";
-      body += i;
-      body += ",\"pin\":";
-      body += MOISTURE_PINS[i];
-      body += ",\"raw\":";
-      body += raw;
-      body += ",\"percent\":";
-      body += moisturePercent(raw);
-      body += "}";
-    }
-  }
-
   body += "],";
   body += statusJson(count);
+  if (sensorClockReady()) {
+    uint32_t now = (uint32_t)time(nullptr);
+    char stamp[32];
+    if (sensorFormatTime(now, stamp, sizeof(stamp))) {
+      sample.unixTime = now;
+      body += ",\"received_at\":\"";
+      body += stamp;
+      body += "\"";
+    }
+  }
   body += "}";
   return body;
 }
@@ -286,17 +261,6 @@ void setup() {
   delay(500);
   rememberBoot();
   sensors.begin();
-  if (MOISTURE_ENABLED) {
-    analogReadResolution(12);
-    Serial.print("Moisture inputs:");
-    for (int i = 0; i < MOISTURE_COUNT; i++) {
-      analogSetPinAttenuation(MOISTURE_PINS[i], ADC_11db);
-      Serial.print(" GPIO ");
-      Serial.print(MOISTURE_PINS[i]);
-    }
-    Serial.println();
-  }
-
   if (strlen(WIFI_PASSWORD) == 0) {
     Serial.println("Set WIFI_PASSWORD in secrets.h, then upload again.");
   }
@@ -305,6 +269,8 @@ void setup() {
   Serial.print(sensors.getDeviceCount());
   Serial.println(" temperature probes");
   connectWifi();
+  sensorServerBegin();
+  sensorServerSync();
 }
 
 void loop() {
@@ -314,13 +280,26 @@ void loop() {
   }
 
   connectWifi();
+  sensorServerLoop();
+
+  static unsigned long lastPostMs = 0;
+  if (lastPostMs != 0 && millis() - lastPostMs < POST_INTERVAL_MS) {
+    delay(10);
+    return;
+  }
+  lastPostMs = millis();
+
   bluetoothKeepalive();
   postSeq++;
-  String body = readingJson();
+  ReadingSample sample;
+  String body = readingJson(sample);
+  sensorServerSetLatest(body);
+  if (sample.unixTime != 0 && !sensorServerRecord(sample)) {
+    Serial.println("Reading was not stored on the board");
+  }
   Serial.println(body);
   if (!postReading(body)) {
     postFailures++;
     Serial.println("Post failed");
   }
-  delay(POST_INTERVAL_MS);
 }

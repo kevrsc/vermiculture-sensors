@@ -1,0 +1,1308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vermiculture sensors</title>
+  <script>
+    try {
+      if (localStorage.getItem("vermiculture-theme") === "night") document.documentElement.classList.add("night");
+    } catch (err) {}
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      color-scheme: light;
+      --ink: #1c1915;
+      --paper: #fbf8f4;
+      --surface: #fff;
+      --line: #ddd6cc;
+      --plot-border: #e4dcd2;
+      --muted: #6b6258;
+      --grid: #e6dfd6;
+      --crosshair: #1c1915;
+      --marker-ring: #fff;
+      --tip-bg: #1c1915;
+      --tip-ink: #f6f1ea;
+      --tip-when: #d9cfc3;
+      --temp-ideal: #1b7a34;
+      --temp-caution: #8a5a00;
+      --temp-stress: #c45c12;
+      --temp-severe: #c41919;
+      --temp-fatal: #7a1020;
+      --ideal-band: rgba(27, 122, 52, 0.16);
+      --guide: #8a5a00;
+    }
+    :root.night {
+      color-scheme: dark;
+      --ink: #f3ece3;
+      --paper: #1c1814;
+      --surface: #26211c;
+      --line: #3f362e;
+      --plot-border: #4a4036;
+      --muted: #b3a79b;
+      --grid: #3a332c;
+      --crosshair: #f3ece3;
+      --marker-ring: #26211c;
+      --tip-bg: #3a322b;
+      --tip-ink: #f6f1ea;
+      --tip-when: #d9cfc3;
+      --temp-ideal: #7dcea0;
+      --temp-caution: #e2b86a;
+      --temp-stress: #ffb067;
+      --temp-severe: #ff8b7a;
+      --temp-fatal: #ff6b8a;
+      --ideal-band: rgba(125, 206, 160, 0.18);
+      --guide: #e2b86a;
+    }
+    body {
+      font-family: Georgia, serif;
+      margin: 2rem auto 3rem;
+      max-width: 58rem;
+      padding: 0 1.25rem;
+      color: var(--ink);
+      background: var(--paper);
+    }
+    h1 { font-weight: normal; font-size: 1.6rem; margin-bottom: 0.4rem; }
+    h2 { font-weight: normal; font-size: 1.15rem; margin: 0 0 0.7rem; }
+    h3 { font-weight: normal; font-size: 1.05rem; margin: 1.1rem 0 0.45rem; }
+    table { border-collapse: collapse; width: 100%; background: var(--surface); }
+    th, td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--line); }
+    code { font-family: Consolas, monospace; }
+    .wait { color: var(--muted); }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.5rem;
+      align-items: center;
+      justify-content: space-between;
+      margin: 1rem 0 1.25rem;
+    }
+    .toolbar-end { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+    .ranges { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    button { font: inherit; color: var(--ink); }
+    button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+    .ranges button {
+      background: transparent;
+      border: 1px solid var(--line);
+      padding: 0.28rem 0.7rem;
+      cursor: pointer;
+    }
+    .ranges button:hover { border-color: var(--ink); }
+    .ranges button[aria-pressed="true"] {
+      background: var(--ink);
+      border-color: var(--ink);
+      color: var(--paper);
+    }
+    section { margin-top: 1.5rem; }
+    .section-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem 1rem;
+      margin-bottom: 0.7rem;
+    }
+    .section-head h2 { margin: 0; }
+    .plot {
+      position: relative;
+      height: 320px;
+      background: var(--surface);
+      border: 1px solid var(--plot-border);
+    }
+    .plot svg { width: 100%; height: 320px; display: block; cursor: crosshair; }
+    .plot text { font-family: Georgia, serif; font-size: 12px; fill: var(--muted); }
+    .plot .wait { margin: 0; padding: 8.5rem 1rem 0; text-align: center; }
+    .legend { display: flex; flex-wrap: wrap; gap: 0.45rem 1rem; margin-top: 0.6rem; }
+    .legend button {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: transparent;
+      border: 0;
+      padding: 0;
+      cursor: pointer;
+    }
+    .legend button[aria-pressed="false"] { opacity: 0.38; }
+    .chip { width: 0.8rem; height: 0.8rem; display: inline-block; }
+    .tip {
+      position: absolute;
+      z-index: 2;
+      pointer-events: none;
+      background: var(--tip-bg);
+      color: var(--tip-ink);
+      padding: 0.45rem 0.6rem;
+      font-family: Consolas, monospace;
+      font-size: 0.78rem;
+      line-height: 1.45;
+    }
+    .tip .when { color: var(--tip-when); }
+    .tip .row { display: flex; justify-content: space-between; gap: 0.9rem; }
+    .temp-ideal { color: var(--temp-ideal); }
+    .temp-caution { color: var(--temp-caution); }
+    .temp-stress { color: var(--temp-stress); font-weight: bold; }
+    .temp-severe { color: var(--temp-severe); font-weight: bold; }
+    .temp-fatal { color: var(--temp-fatal); font-weight: bold; }
+    .temp-key { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+    .temp-key li { margin: 0.15rem 0; }
+    .species { margin: 0.8rem 0 0; }
+    .extreme-when { color: var(--muted); font-size: 0.85rem; margin-top: 0.15rem; }
+    .missing { color: var(--temp-severe); font-weight: bold; }
+    p.missing { margin: 0 0 0.7rem; }
+    #board th {
+      width: 12rem;
+      font-weight: normal;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>Vermiculture sensors</h1>
+  <p id="status" class="wait">Loading readings…</p>
+  <div class="toolbar">
+    <div class="ranges" role="group" aria-label="Time range">
+      <button type="button" data-range="1h" aria-pressed="false">1 hour</button>
+      <button type="button" data-range="8h" aria-pressed="true">8 hours</button>
+      <button type="button" data-range="24h" aria-pressed="false">24 hours</button>
+      <button type="button" data-range="all" aria-pressed="false">All</button>
+    </div>
+    <div class="toolbar-end">
+      <div class="ranges" role="group" aria-label="Temperature unit">
+        <button type="button" data-unit="C" aria-pressed="false">°C</button>
+        <button type="button" data-unit="F" aria-pressed="true">°F</button>
+      </div>
+      <div class="ranges" role="group" aria-label="Color scheme">
+        <button type="button" id="theme-toggle" aria-pressed="false">Night</button>
+      </div>
+    </div>
+  </div>
+
+  <section>
+    <h2>Bins</h2>
+    <div id="current"></div>
+  </section>
+
+  <section>
+    <h2>Minimum and maximum</h2>
+    <div id="extremes"></div>
+    <p class="wait">For the selected time range.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Temperature</h2>
+      <div class="ranges" role="group" aria-label="Chart thresholds">
+        <button type="button" id="threshold-toggle" aria-pressed="true" aria-label="Hide temperature thresholds">Thresholds</button>
+      </div>
+    </div>
+    <div class="plot" id="temp-plot"></div>
+    <div class="legend" id="temp-legend"></div>
+    <p class="species">Red Wigglers (Eisenia fetida): ideal 65°F – 77°F (tolerates 39°F – 90°F).</p>
+    <ul class="temp-key">
+      <li><span class="temp-ideal">Ideal</span> is 65–77°F. The chart shades this band while Thresholds is on.</li>
+      <li><span class="temp-caution">Tolerable</span> is outside that ideal, at 50–65°F or 77–85°F.</li>
+      <li><span class="temp-stress">Stress</span> is cold stress below 50°F, or heat stress above 85°F. Thresholds draws dashed lines at 50°F and 85°F. Turn it off to fit the chart to the probe readings.</li>
+      <li><span class="temp-severe">Outside tolerance</span> is below 39°F or above 90°F.</li>
+      <li><span class="temp-fatal">Freezing</span> is 32°F or below. A frozen bin can be fatal.</li>
+    </ul>
+    <p class="wait">Broader vermiculture limits: ideal 60–77°F (15–25°C), survival 40–90°F (4–32°C). A bin with no reading for 30 minutes is marked missing.</p>
+  </section>
+
+  <section>
+    <h2>Latest reading</h2>
+    <div id="latest"></div>
+  </section>
+
+  <section>
+    <h2>Sensor board</h2>
+    <div id="board"></div>
+  </section>
+  <noscript><p class="wait">This page draws the graph in the browser. Enable JavaScript, then reload.</p></noscript>
+  <script>
+    const DAY_COLORS = ["#9a4e32", "#2f6d4f", "#2d5f86", "#b0792b", "#6d4b8a"];
+    const NIGHT_COLORS = ["#e08a62", "#7dcea0", "#8ec3e6", "#e2b86a", "#d2b0ea"];
+    const PROBE_NAMES = {
+      "2813f8d500000004": "Larry",
+      "284df1d600000042": "Harry",
+      "28107bd400000057": "Curly",
+      "288201d3000000de": "Mo"
+    };
+    const RANGE_MS = {"1h": 60 * 60 * 1000, "8h": 8 * 60 * 60 * 1000, "24h": 24 * 60 * 60 * 1000};
+    const GAP_MS = 30 * 60 * 1000;
+    const STALE_MS = 30 * 60 * 1000;
+
+    let readings = [];
+    let rangeKey = "8h";
+    let tempUnit = "F";
+    let showThresholds = true;
+    const hiddenTemp = new Set();
+
+    function svgEl(name) {
+      return document.createElementNS("http://www.w3.org/2000/svg", name);
+    }
+
+    function el(tag, text) {
+      const node = document.createElement(tag);
+      node.textContent = text;
+      return node;
+    }
+
+    function note(text) {
+      return el("p", text);
+    }
+
+    function finite(value) {
+      if (typeof value !== "number" && typeof value !== "string") return null;
+      if (typeof value === "string" && value.trim() === "") return null;
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    }
+
+    function formatStamp(ms) {
+      return new Date(ms).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+    }
+
+    function formatAxisTime(ms, span) {
+      const when = new Date(ms);
+      const time = when.toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
+      if (span <= 18 * 60 * 60 * 1000) return time;
+      const day = when.toLocaleDateString([], {month: "short", day: "numeric"});
+      return day + " " + time;
+    }
+
+    function formatBoth(celsius) {
+      const c = finite(celsius);
+      if (c == null) return "no reading";
+      const f = c * 9 / 5 + 32;
+      return Math.round(f) + " °F (" + Math.round(c) + " °C)";
+    }
+
+    function tempNumber(celsius) {
+      return tempUnit === "F" ? celsius * 9 / 5 + 32 : celsius;
+    }
+
+    function formatTempNumber(celsius) {
+      const unit = tempUnit === "F" ? "°F" : "°C";
+      return Math.round(tempNumber(celsius)) + " " + unit;
+    }
+
+    function fahrenheit(celsius) {
+      return celsius * 9 / 5 + 32;
+    }
+
+    function celsiusFromFahrenheit(fahrenheitValue) {
+      return (fahrenheitValue - 32) * 5 / 9;
+    }
+
+    function tempBand(celsius) {
+      const f = Math.round(fahrenheit(celsius));
+      if (f <= 32) return "temp-fatal";
+      if (f < 39 || f > 90) return "temp-severe";
+      if (f < 50 || f > 85) return "temp-stress";
+      if (f < 65 || f > 77) return "temp-caution";
+      return "temp-ideal";
+    }
+
+    function tempCell(text, celsius) {
+      const cell = document.createElement("td");
+      cell.textContent = text;
+      const value = finite(celsius);
+      if (value != null) cell.className = tempBand(value);
+      return cell;
+    }
+
+    function collectSeries(rows, listName, identify, valueOf) {
+      const map = new Map();
+      rows.forEach(row => {
+        const t = Date.parse(row.received_at);
+        if (!Number.isFinite(t) || !Array.isArray(row[listName])) return;
+        row[listName].forEach(item => {
+          const v = valueOf(item);
+          if (v == null) return;
+          const id = identify(item);
+          let series = map.get(id.key);
+          if (!series) {
+            series = {key: id.key, label: id.label, points: []};
+            map.set(id.key, series);
+          }
+          series.points.push({t: t, v: v, raw: item.raw});
+        });
+      });
+      const series = [...map.values()];
+      series.forEach(item => item.points.sort((a, b) => a.t - b.t));
+      series.sort((a, b) => a.label.localeCompare(b.label));
+      return series;
+    }
+
+    function probeName(address) {
+      if (!address) return "";
+      return PROBE_NAMES[String(address).toLowerCase()] || "";
+    }
+
+    function tempIdentity(sensor) {
+      const address = sensor.address ? String(sensor.address) : "";
+      const name = probeName(address);
+      const tail = address.length > 4 ? address.slice(-4) : address;
+      return {
+        key: address ? "addr:" + address.toLowerCase() : "index:" + sensor.index,
+        label: name || (tail ? "Probe …" + tail : "Probe " + sensor.index)
+      };
+    }
+
+    function tempSeries(rows) {
+      const series = collectSeries(rows, "sensors", tempIdentity, sensor => finite(sensor.celsius));
+      const order = Object.keys(PROBE_NAMES);
+      series.sort((a, b) => {
+        const ai = order.indexOf(a.key.slice(5));
+        const bi = order.indexOf(b.key.slice(5));
+        if (ai === -1 && bi === -1) return a.label.localeCompare(b.label);
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+      });
+      return series;
+    }
+
+    function inRange(rows) {
+      const span = RANGE_MS[rangeKey];
+      if (span == null) return rows;
+      const cutoff = Date.now() - span;
+      return rows.filter(row => {
+        const t = Date.parse(row.received_at);
+        return Number.isFinite(t) && t >= cutoff;
+      });
+    }
+
+    function nightMode() {
+      return document.documentElement.classList.contains("night");
+    }
+
+    function cssVar(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    function colorOf(keys) {
+      const colors = nightMode() ? NIGHT_COLORS : DAY_COLORS;
+      const map = new Map();
+      [...keys].sort().forEach((key, index) => map.set(key, colors[index % colors.length]));
+      return key => map.get(key) || colors[0];
+    }
+
+    function segments(points) {
+      const runs = [];
+      let run = [];
+      points.forEach(point => {
+        const prev = run[run.length - 1];
+        if (prev && point.t - prev.t > GAP_MS) {
+          runs.push(run);
+          run = [];
+        }
+        run.push(point);
+      });
+      if (run.length) runs.push(run);
+      return runs;
+    }
+
+    function thinPoints(points, maxPoints) {
+      if (points.length <= maxPoints) return points.slice();
+      const out = [];
+      const step = points.length / maxPoints;
+      for (let i = 0; i < maxPoints; i++) {
+        const start = Math.floor(i * step);
+        const end = Math.min(points.length, Math.max(start + 1, Math.floor((i + 1) * step)));
+        let lo = points[start];
+        let hi = points[start];
+        for (let j = start + 1; j < end; j++) {
+          if (points[j].v < lo.v) lo = points[j];
+          if (points[j].v > hi.v) hi = points[j];
+        }
+        if (lo.t <= hi.t) {
+          out.push(lo);
+          if (hi !== lo) out.push(hi);
+        } else {
+          out.push(hi);
+          out.push(lo);
+        }
+      }
+      return out;
+    }
+
+    function extent(numbers) {
+      let min = Infinity;
+      let max = -Infinity;
+      numbers.forEach(number => {
+        if (number < min) min = number;
+        if (number > max) max = number;
+      });
+      return [min, max];
+    }
+
+    function niceTicks(min, max, minStep) {
+      const span = max - min;
+      if (!(span > 0)) return [min];
+      const rough = span / 4;
+      const mag = 10 ** Math.floor(Math.log10(rough));
+      const residual = rough / mag;
+      const nice = residual >= 7.5 ? 10 : residual >= 3.5 ? 5 : residual >= 1.5 ? 2 : 1;
+      let step = nice * mag;
+      if (minStep && step < minStep) step = minStep;
+      const start = Math.ceil(min / step - 1e-9) * step;
+      const ticks = [];
+      for (let i = 0; i < 6; i++) {
+        const value = Number((start + i * step).toFixed(6));
+        if (value <= min + step * 0.15) continue;
+        if (value >= max - step * 0.15) break;
+        ticks.push(value);
+      }
+      if (!ticks.length) ticks.push(Number(((min + max) / 2).toFixed(6)));
+      return ticks;
+    }
+
+    function drawChart(plot, legend, series, paint, opts) {
+      plot.replaceChildren();
+      legend.replaceChildren();
+      const present = series.filter(item => item.points.length);
+      if (!present.length) {
+        const empty = note(opts.empty);
+        empty.className = "wait";
+        plot.append(empty);
+        return;
+      }
+
+      present.forEach(item => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.setAttribute("aria-pressed", opts.hidden.has(item.key) ? "false" : "true");
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.style.background = paint(item.key);
+        const last = item.points[item.points.length - 1];
+        button.append(chip, document.createTextNode(item.label + " · " + opts.format(last)));
+        button.addEventListener("click", () => {
+          if (opts.hidden.has(item.key)) opts.hidden.delete(item.key);
+          else opts.hidden.add(item.key);
+          renderCharts();
+        });
+        legend.append(button);
+      });
+
+      const visible = present.filter(item => !opts.hidden.has(item.key));
+      if (!visible.length) {
+        const hiddenNote = note("Select a series in the legend to show it.");
+        hiddenNote.className = "wait";
+        plot.append(hiddenNote);
+        return;
+      }
+
+      const width = plot.clientWidth;
+      const height = 320;
+      if (width < 80) return;
+
+      const displayed = [];
+      visible.forEach(item => item.points.forEach(point => displayed.push(opts.value(point))));
+      let [min, max] = extent(displayed);
+      if (opts.domain) {
+        min = opts.domain[0];
+        max = opts.domain[1];
+      } else {
+        if (opts.guides) {
+          [opts.guides.idealLow, opts.guides.idealHigh, ...opts.guides.lines].forEach(celsius => {
+            const shown = opts.value({v: celsius});
+            if (shown < min) min = shown;
+            if (shown > max) max = shown;
+          });
+        }
+        if (!(max > min)) {
+          min -= opts.minPad;
+          max += opts.minPad;
+        } else {
+          const pad = Math.max((max - min) * 0.08, opts.minPad);
+          min -= pad;
+          max += pad;
+        }
+      }
+      if (!(max > min)) {
+        min -= 1;
+        max += 1;
+      }
+
+      const yText = value => String(Math.round(value));
+      const margin = {top: 16, right: 16, bottom: 36, left: Math.max(52, 18 + yText(max).length * 8)};
+      const innerW = Math.max(10, width - margin.left - margin.right);
+      const innerH = height - margin.top - margin.bottom;
+      const times = [];
+      visible.forEach(item => item.points.forEach(point => times.push(point.t)));
+      const [tMin, tMax] = extent(times);
+      const xOf = t => tMax === tMin ? margin.left + innerW / 2 : margin.left + (t - tMin) / (tMax - tMin) * innerW;
+      const yOf = value => margin.top + (max - value) / (max - min) * innerH;
+
+      const svg = svgEl("svg");
+      svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+      svg.setAttribute("role", "img");
+      svg.setAttribute("aria-label", opts.aria);
+
+      if (opts.guides) {
+        const bandTop = yOf(opts.value({v: opts.guides.idealHigh}));
+        const bandBottom = yOf(opts.value({v: opts.guides.idealLow}));
+        const band = svgEl("rect");
+        band.setAttribute("x", margin.left);
+        band.setAttribute("y", Math.min(bandTop, bandBottom));
+        band.setAttribute("width", innerW);
+        band.setAttribute("height", Math.max(1, Math.abs(bandBottom - bandTop)));
+        band.setAttribute("fill", cssVar("--ideal-band"));
+        svg.append(band);
+        opts.guides.lines.forEach(celsius => {
+          const y = yOf(opts.value({v: celsius}));
+          const line = svgEl("line");
+          line.setAttribute("x1", margin.left);
+          line.setAttribute("x2", margin.left + innerW);
+          line.setAttribute("y1", y);
+          line.setAttribute("y2", y);
+          line.setAttribute("stroke", cssVar("--guide"));
+          line.setAttribute("stroke-dasharray", "5 4");
+          svg.append(line);
+          const label = svgEl("text");
+          label.setAttribute("x", margin.left + innerW - 6);
+          label.setAttribute("y", Math.max(margin.top + 12, y - 5));
+          label.setAttribute("text-anchor", "end");
+          label.textContent = Math.round(fahrenheit(celsius)) + "°F";
+          svg.append(label);
+        });
+      }
+
+      const defs = svgEl("defs");
+      const clip = svgEl("clipPath");
+      clip.setAttribute("id", opts.clipId);
+      const clipRect = svgEl("rect");
+      clipRect.setAttribute("x", margin.left);
+      clipRect.setAttribute("y", margin.top);
+      clipRect.setAttribute("width", innerW);
+      clipRect.setAttribute("height", innerH);
+      clip.append(clipRect);
+      defs.append(clip);
+      svg.append(defs);
+
+      niceTicks(min, max, 1).forEach(tick => {
+        const y = yOf(tick);
+        const grid = svgEl("line");
+        grid.setAttribute("x1", margin.left);
+        grid.setAttribute("x2", margin.left + innerW);
+        grid.setAttribute("y1", y);
+        grid.setAttribute("y2", y);
+        grid.setAttribute("stroke", cssVar("--grid"));
+        svg.append(grid);
+        const label = svgEl("text");
+        label.setAttribute("x", margin.left - 8);
+        label.setAttribute("y", y + 4);
+        label.setAttribute("text-anchor", "end");
+        label.textContent = yText(tick);
+        svg.append(label);
+      });
+
+      const timeSpan = tMax - tMin;
+      const longSpan = timeSpan > 18 * 60 * 60 * 1000;
+      const tickCount = Math.max(2, Math.min(longSpan ? 4 : 6, Math.floor(innerW / (longSpan ? 150 : 72))));
+      for (let i = 0; i < tickCount; i++) {
+        const t = tMax === tMin ? tMin : tMin + i * timeSpan / (tickCount - 1);
+        const label = svgEl("text");
+        label.setAttribute("x", xOf(t));
+        label.setAttribute("y", height - 12);
+        label.setAttribute("text-anchor", i === 0 ? "start" : i === tickCount - 1 ? "end" : "middle");
+        label.textContent = formatAxisTime(t, timeSpan);
+        svg.append(label);
+      }
+
+      const layer = svgEl("g");
+      layer.setAttribute("clip-path", "url(#" + opts.clipId + ")");
+      const plotted = [];
+      visible.forEach(item => {
+        const color = paint(item.key);
+        segments(item.points).forEach(run => {
+          const allowance = Math.max(2, Math.round(1200 * run.length / item.points.length));
+          const drawn = thinPoints(run, allowance);
+          if (drawn.length === 1) {
+            const point = drawn[0];
+            const cx = xOf(point.t);
+            const cy = yOf(opts.value(point));
+            const dot = svgEl("circle");
+            dot.setAttribute("cx", cx);
+            dot.setAttribute("cy", cy);
+            dot.setAttribute("r", 3);
+            dot.setAttribute("fill", color);
+            layer.append(dot);
+            plotted.push({key: item.key, label: item.label, color: color, point: point, x: cx, y: cy});
+            return;
+          }
+          const commands = [];
+          drawn.forEach((point, index) => {
+            const x = xOf(point.t);
+            const y = yOf(opts.value(point));
+            plotted.push({key: item.key, label: item.label, color: color, point: point, x: x, y: y});
+            commands.push((index === 0 ? "M" : "L") + x.toFixed(2) + " " + y.toFixed(2));
+          });
+          const path = svgEl("path");
+          path.setAttribute("d", commands.join(" "));
+          path.setAttribute("fill", "none");
+          path.setAttribute("stroke", color);
+          path.setAttribute("stroke-width", "1.75");
+          path.setAttribute("stroke-linejoin", "round");
+          path.setAttribute("stroke-linecap", "round");
+          layer.append(path);
+        });
+      });
+      svg.append(layer);
+
+      const rule = svgEl("line");
+      rule.setAttribute("y1", margin.top);
+      rule.setAttribute("y2", margin.top + innerH);
+      rule.setAttribute("stroke", cssVar("--crosshair"));
+      rule.setAttribute("stroke-width", "1");
+      rule.setAttribute("visibility", "hidden");
+      svg.append(rule);
+      const markerLayer = svgEl("g");
+      svg.append(markerLayer);
+
+      const tip = document.createElement("div");
+      tip.className = "tip";
+      tip.hidden = true;
+      plot.append(svg, tip);
+
+      function hideTip() {
+        rule.setAttribute("visibility", "hidden");
+        markerLayer.replaceChildren();
+        tip.hidden = true;
+      }
+
+      svg.addEventListener("pointermove", pointerEvent => {
+        const bounds = svg.getBoundingClientRect();
+        if (!bounds.width || !plotted.length) return;
+        const x = (pointerEvent.clientX - bounds.left) * (width / bounds.width);
+        let nearest = plotted[0];
+        let nearestDist = Math.abs(nearest.x - x);
+        plotted.forEach(item => {
+          const dist = Math.abs(item.x - x);
+          if (dist < nearestDist) {
+            nearest = item;
+            nearestDist = dist;
+          }
+        });
+        const byKey = new Map();
+        plotted.forEach(item => {
+          const distT = Math.abs(item.point.t - nearest.point.t);
+          const prev = byKey.get(item.key);
+          if (!prev || distT < prev.distT) byKey.set(item.key, {distT: distT, item: item});
+        });
+        const hits = [...byKey.values()].filter(entry => entry.distT <= 20000).map(entry => entry.item);
+        rule.setAttribute("visibility", "visible");
+        rule.setAttribute("x1", nearest.x);
+        rule.setAttribute("x2", nearest.x);
+        markerLayer.replaceChildren();
+        hits.forEach(item => {
+          const dot = svgEl("circle");
+          dot.setAttribute("cx", item.x);
+          dot.setAttribute("cy", item.y);
+          dot.setAttribute("r", "4");
+          dot.setAttribute("fill", item.color);
+          dot.setAttribute("stroke", cssVar("--marker-ring"));
+          dot.setAttribute("stroke-width", "1.5");
+          markerLayer.append(dot);
+        });
+        tip.replaceChildren();
+        const when = document.createElement("div");
+        when.className = "when";
+        when.textContent = formatStamp(nearest.point.t);
+        tip.append(when);
+        hits.forEach(item => {
+          const row = document.createElement("div");
+          row.className = "row";
+          row.append(el("span", item.label), el("span", opts.format(item.point)));
+          tip.append(row);
+        });
+        tip.hidden = false;
+        const host = plot.getBoundingClientRect();
+        let left = pointerEvent.clientX - host.left + 14;
+        let top = pointerEvent.clientY - host.top + 14;
+        if (left + tip.offsetWidth > plot.clientWidth - 8) left = pointerEvent.clientX - host.left - tip.offsetWidth - 14;
+        if (top + tip.offsetHeight > plot.clientHeight - 8) top = pointerEvent.clientY - host.top - tip.offsetHeight - 14;
+        tip.style.left = Math.max(8, left) + "px";
+        tip.style.top = Math.max(8, top) + "px";
+      });
+      svg.addEventListener("pointerleave", hideTip);
+    }
+
+    function renderLatest(reading) {
+      const root = document.getElementById("latest");
+      root.replaceChildren();
+      if (!reading) {
+        const waiting = note("Waiting for the ESP32. It measures about every 15 minutes.");
+        waiting.className = "wait";
+        root.append(waiting);
+        return;
+      }
+
+      root.append(el("h3", "Temperature"));
+      const sensors = Array.isArray(reading.sensors) ? reading.sensors : [];
+      if (!sensors.length) {
+        const missing = note("No temperature probes in this post.");
+        missing.className = "wait";
+        root.append(missing);
+      } else {
+        const table = document.createElement("table");
+        const head = document.createElement("tr");
+        ["#", "Name", "Temperature", "Probe"].forEach(text => head.append(el("th", text)));
+        const thead = document.createElement("thead");
+        thead.append(head);
+        const tbody = document.createElement("tbody");
+        sensors.slice().sort((a, b) => {
+          const order = Object.keys(PROBE_NAMES);
+          const ai = order.indexOf(a.address ? String(a.address).toLowerCase() : "");
+          const bi = order.indexOf(b.address ? String(b.address).toLowerCase() : "");
+          const an = ai === -1 ? order.length : ai;
+          const bn = bi === -1 ? order.length : bi;
+          if (an !== bn) return an - bn;
+          return (a.index == null ? 0 : a.index) - (b.index == null ? 0 : b.index);
+        }).forEach(sensor => {
+          const row = document.createElement("tr");
+          row.append(
+            el("td", sensor.index == null ? "" : String(sensor.index)),
+            el("td", probeName(sensor.address))
+          );
+          const address = document.createElement("td");
+          const code = document.createElement("code");
+          code.textContent = sensor.address || "";
+          address.append(code);
+          row.append(tempCell(formatBoth(sensor.celsius), sensor.celsius), address);
+          tbody.append(row);
+        });
+        table.append(thead, tbody);
+        root.append(table);
+      }
+    }
+
+    function renderStatus() {
+      const status = document.getElementById("status");
+      if (!readings.length) {
+        status.className = "wait";
+        status.textContent = "No readings stored yet.";
+        return;
+      }
+      const last = readings[readings.length - 1];
+      const when = Date.parse(last.received_at);
+      status.className = "";
+      status.textContent = "Last post " + (Number.isFinite(when) ? formatStamp(when) : "at an unknown time")
+        + " · " + readings.length + " readings stored";
+    }
+
+    function formatAge(ms) {
+      const minutes = Math.max(1, Math.round(ms / 60000));
+      if (minutes < 60) return minutes === 1 ? "1 minute ago" : minutes + " minutes ago";
+      const hours = Math.floor(minutes / 60);
+      const rest = minutes % 60;
+      if (hours < 48) return rest ? hours + " h " + rest + " min ago" : hours + " h ago";
+      const days = Math.floor(hours / 24);
+      return days === 1 ? "1 day ago" : days + " days ago";
+    }
+
+    function joinNames(names) {
+      if (names.length <= 1) return names[0] || "";
+      if (names.length === 2) return names[0] + " and " + names[1];
+      return names.slice(0, -1).join(", ") + ", and " + names[names.length - 1];
+    }
+
+    function probeIndexes() {
+      const indexes = new Map();
+      for (let i = readings.length - 1; i >= 0; i--) {
+        const sensors = readings[i].sensors;
+        if (!Array.isArray(sensors)) continue;
+        sensors.forEach(sensor => {
+          if (sensor.index == null) return;
+          const address = sensor.address ? String(sensor.address).toLowerCase() : "";
+          const key = address ? "addr:" + address : "index:" + sensor.index;
+          if (!indexes.has(key)) indexes.set(key, sensor.index);
+        });
+      }
+      return indexes;
+    }
+
+    function binOverview() {
+      const series = tempSeries(readings);
+      const byKey = new Map(series.map(item => [item.key, item]));
+      const rows = Object.entries(PROBE_NAMES).map(([address, name]) => {
+        const key = "addr:" + address;
+        return byKey.get(key) || {key: key, label: name, points: []};
+      });
+      series.forEach(item => {
+        if (!rows.some(row => row.key === item.key)) rows.push(item);
+      });
+      return rows;
+    }
+
+    function isStale(point) {
+      return !point || Date.now() - point.t > STALE_MS;
+    }
+
+    function renderCurrent() {
+      const root = document.getElementById("current");
+      root.replaceChildren();
+      const rows = binOverview();
+      if (!rows.length) {
+        const waiting = note("Waiting for the ESP32. It measures about every 15 minutes.");
+        waiting.className = "wait";
+        root.append(waiting);
+        return;
+      }
+      const quiet = rows.filter(row => isStale(row.points[row.points.length - 1]));
+      if (quiet.length) {
+        const warning = note(
+          joinNames(quiet.map(row => row.label))
+          + (quiet.length === 1 ? " has" : " have")
+          + " not reported in the last 30 minutes."
+        );
+        warning.className = "missing";
+        root.append(warning);
+      }
+      const table = document.createElement("table");
+      const head = document.createElement("tr");
+      ["#", "Bin", "Temperature", "Last report"].forEach(text => head.append(el("th", text)));
+      const thead = document.createElement("thead");
+      thead.append(head);
+      const tbody = document.createElement("tbody");
+      const indexes = probeIndexes();
+      rows.forEach(row => {
+        const last = row.points[row.points.length - 1];
+        const tr = document.createElement("tr");
+        const index = indexes.has(row.key) ? String(indexes.get(row.key)) : "—";
+        tr.append(el("td", index), el("td", row.label));
+        const temperature = document.createElement("td");
+        const reported = document.createElement("td");
+        if (!last) {
+          const missing = el("span", "No reading yet");
+          missing.className = "wait";
+          temperature.append(missing);
+          reported.textContent = "—";
+          reported.className = "wait";
+        } else if (isStale(last)) {
+          const missing = document.createElement("div");
+          missing.className = "missing";
+          missing.textContent = "Missing";
+          const prior = document.createElement("div");
+          prior.className = "extreme-when";
+          prior.textContent = "Last value " + formatTempNumber(last.v);
+          temperature.append(missing, prior);
+          reported.append(el("div", formatStamp(last.t)));
+          const age = document.createElement("div");
+          age.className = "extreme-when";
+          age.textContent = formatAge(Date.now() - last.t);
+          reported.append(age);
+        } else {
+          const value = document.createElement("span");
+          value.className = tempBand(last.v);
+          value.textContent = formatTempNumber(last.v);
+          temperature.append(value);
+          reported.textContent = formatStamp(last.t);
+        }
+        tr.append(temperature, reported);
+        tbody.append(tr);
+      });
+      table.append(thead, tbody);
+      root.append(table);
+    }
+
+    function extremeCell(point) {
+      const cell = document.createElement("td");
+      const value = document.createElement("div");
+      value.className = tempBand(point.v);
+      value.textContent = formatTempNumber(point.v);
+      const when = document.createElement("div");
+      when.className = "extreme-when";
+      when.textContent = formatStamp(point.t);
+      cell.append(value, when);
+      return cell;
+    }
+
+    function renderExtremes() {
+      const root = document.getElementById("extremes");
+      root.replaceChildren();
+      const series = tempSeries(inRange(readings));
+      if (!series.length) {
+        const empty = note("No temperature readings in this range.");
+        empty.className = "wait";
+        root.append(empty);
+        return;
+      }
+      const table = document.createElement("table");
+      const head = document.createElement("tr");
+      ["Bin", "Minimum", "Maximum"].forEach(text => head.append(el("th", text)));
+      const thead = document.createElement("thead");
+      thead.append(head);
+      const tbody = document.createElement("tbody");
+      series.forEach(item => {
+        let min = item.points[0];
+        let max = item.points[0];
+        item.points.forEach(point => {
+          if (point.v < min.v) min = point;
+          if (point.v > max.v) max = point;
+        });
+        const row = document.createElement("tr");
+        row.append(el("td", item.label), extremeCell(min), extremeCell(max));
+        tbody.append(row);
+      });
+      table.append(thead, tbody);
+      root.append(table);
+    }
+
+    function renderCharts() {
+      renderCurrent();
+      renderExtremes();
+      const shown = inRange(readings);
+      const temperatures = tempSeries(shown);
+      const paintTemp = colorOf(tempSeries(readings).map(item => item.key));
+      drawChart(document.getElementById("temp-plot"), document.getElementById("temp-legend"), temperatures, paintTemp, {
+        empty: "No temperature readings in this range.",
+        aria: "Temperature over time",
+        clipId: "clip-temp",
+        hidden: hiddenTemp,
+        minPad: 1,
+        value: point => tempNumber(point.v),
+        format: point => formatTempNumber(point.v),
+        guides: showThresholds ? {
+          idealLow: celsiusFromFahrenheit(65),
+          idealHigh: celsiusFromFahrenheit(77),
+          lines: [celsiusFromFahrenheit(50), celsiusFromFahrenheit(85)]
+        } : null
+      });
+    }
+
+    const RESET_WORDS = {
+      POWERON: "Power was turned on",
+      EXT: "The reset button was pressed",
+      SW: "The program restarted itself",
+      PANIC: "The program crashed",
+      INT_WDT: "A watchdog restarted the board",
+      TASK_WDT: "A watchdog restarted the board",
+      WDT: "A watchdog restarted the board",
+      DEEPSLEEP: "The board woke from sleep",
+      BROWNOUT: "The power dipped and restarted the board",
+      SDIO: "The board restarted from an SD card connection",
+      UNKNOWN: "The restart reason is unknown"
+    };
+    const RESET_WARN = {
+      PANIC: "missing",
+      INT_WDT: "temp-stress",
+      TASK_WDT: "temp-stress",
+      WDT: "temp-stress",
+      BROWNOUT: "temp-stress"
+    };
+
+    function formatDuration(ms) {
+      const n = finite(ms);
+      if (n == null || n < 0) return null;
+      const totalSeconds = Math.floor(n / 1000);
+      if (totalSeconds < 60) return "less than a minute";
+      const days = Math.floor(totalSeconds / 86400);
+      const hours = Math.floor((totalSeconds % 86400) / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const parts = [];
+      if (days) parts.push(days === 1 ? "1 day" : days + " days");
+      if (hours) parts.push(hours === 1 ? "1 hour" : hours + " hours");
+      if (minutes || !parts.length) parts.push(minutes === 1 ? "1 minute" : minutes + " minutes");
+      return parts.join(", ");
+    }
+
+    function formatBytes(value) {
+      const n = finite(value);
+      if (n == null || n < 0) return null;
+      if (n < 1024) return Math.round(n) + " bytes";
+      const kb = n / 1024;
+      if (kb < 1024) return (kb >= 10 ? Math.round(kb) : kb.toFixed(1)) + " KB";
+      return (kb / 1024).toFixed(1) + " MB";
+    }
+
+    function boardRows(status) {
+      const rows = [];
+      const uptime = formatDuration(status.uptime_ms);
+      if (uptime) rows.push({label: "Running", text: uptime});
+
+      const reasonKey = typeof status.reset_reason === "string" ? status.reset_reason : "";
+      const reason = RESET_WORDS[reasonKey] || (reasonKey ? reasonKey : "");
+      const boots = finite(status.boot_count);
+      if (reason || boots != null) {
+        let text = reason || "The restart reason was not reported";
+        if (boots != null) text += ". This is boot " + Math.round(boots) + ".";
+        rows.push({label: "Last start", text: text, warn: RESET_WARN[reasonKey] || ""});
+      }
+
+      if ("rssi_dbm" in status || "ip" in status) {
+        const rssi = finite(status.rssi_dbm);
+        const ip = typeof status.ip === "string" && status.ip.trim() ? status.ip.trim() : "";
+        let text = "Not connected.";
+        let warn = "missing";
+        if (rssi != null) {
+          let quality = "Weak signal";
+          warn = "temp-caution";
+          if (rssi >= -55) {
+            quality = "Strong signal";
+            warn = "";
+          } else if (rssi >= -67) {
+            quality = "Good signal";
+            warn = "";
+          } else if (rssi >= -75) {
+            quality = "Fair signal";
+            warn = "";
+          }
+          text = quality + ", " + Math.round(rssi) + " dBm" + (ip ? ", at " + ip : "") + ".";
+        } else if (ip) {
+          text = "Connected at " + ip + ". Signal strength was not reported.";
+          warn = "";
+        }
+        rows.push({label: "Wi-Fi", text: text, warn: warn});
+      }
+
+      const reconnects = finite(status.wifi_reconnects);
+      if (reconnects != null) {
+        const count = Math.round(reconnects);
+        rows.push({
+          label: "Wi-Fi drops",
+          text: count === 0
+            ? "None since this start."
+            : count === 1
+              ? "Reconnected once since this start."
+              : "Reconnected " + count + " times since this start.",
+          warn: count > 0 ? "temp-caution" : ""
+        });
+      }
+
+      const failures = finite(status.post_failures);
+      if (failures != null) {
+        const count = Math.round(failures);
+        rows.push({
+          label: "Failed posts",
+          text: count === 0
+            ? "None since this start."
+            : count === 1
+              ? "1 post did not reach this computer."
+              : count + " posts did not reach this computer.",
+          warn: count > 0 ? "temp-stress" : ""
+        });
+      }
+
+      const seq = finite(status.seq);
+      if (seq != null) rows.push({label: "Posts this session", text: String(Math.round(seq))});
+
+      const probes = finite(status.probe_count);
+      if (probes != null) {
+        const expected = Object.keys(PROBE_NAMES).length;
+        const count = Math.round(probes);
+        let text = count + " temperature probes were found.";
+        let warn = "";
+        if (count === expected) text = "All " + expected + " temperature probes are connected.";
+        else if (count === 0) {
+          text = "No temperature probes were found.";
+          warn = "missing";
+        } else if (count < expected) {
+          text = "Only " + count + " of " + expected + " temperature probes were found.";
+          warn = "missing";
+        }
+        rows.push({label: "Probes", text: text, warn: warn});
+      }
+
+      if ("keepalive" in status || "keepalive_age_ms" in status) {
+        const result = typeof status.keepalive === "string" ? status.keepalive : "";
+        const age = formatDuration(status.keepalive_age_ms);
+        let text = "Not checked yet.";
+        let warn = "";
+        if (result === "ok") text = age ? "Working. Last check " + age + " ago." : "Working.";
+        else if (result === "failed") {
+          text = age ? "The last check failed, " + age + " ago." : "The last check failed.";
+          warn = "missing";
+        } else if (result && result !== "pending") text = result;
+        rows.push({label: "Bluetooth check", text: text, warn: warn});
+      }
+
+      const free = formatBytes(status.free_heap);
+      const lowest = formatBytes(status.min_free_heap);
+      if (free || lowest) {
+        let text = free ? free + " free" : "Free memory was not reported";
+        if (lowest) text += ". Lowest since this start: " + lowest + ".";
+        rows.push({label: "Memory", text: text});
+      }
+
+      if (typeof status.sketch_md5 === "string" && status.sketch_md5.trim()) {
+        rows.push({label: "Firmware", text: status.sketch_md5.trim(), code: true});
+      }
+      return rows;
+    }
+
+    function renderBoard() {
+      const root = document.getElementById("board");
+      root.replaceChildren();
+      const reading = readings.length ? readings[readings.length - 1] : null;
+      const status = reading && reading.status && typeof reading.status === "object" && !Array.isArray(reading.status)
+        ? reading.status
+        : null;
+      if (!status) {
+        const waiting = note("No board report in the latest post. The rest of the page still works.");
+        waiting.className = "wait";
+        root.append(waiting);
+        return;
+      }
+      const rows = boardRows(status);
+      if (!rows.length) {
+        const empty = note("The latest post included a board report, but it had nothing to show.");
+        empty.className = "wait";
+        root.append(empty);
+        return;
+      }
+      const table = document.createElement("table");
+      const tbody = document.createElement("tbody");
+      rows.forEach(item => {
+        const tr = document.createElement("tr");
+        const label = document.createElement("th");
+        label.scope = "row";
+        label.textContent = item.label;
+        const value = document.createElement("td");
+        if (item.code) {
+          value.append(el("code", item.text));
+        } else {
+          value.textContent = item.text;
+        }
+        if (item.warn) value.className = item.warn;
+        tr.append(label, value);
+        tbody.append(tr);
+      });
+      table.append(tbody);
+      root.append(table);
+    }
+
+    function render() {
+      renderStatus();
+      renderLatest(readings.length ? readings[readings.length - 1] : null);
+      renderBoard();
+      renderCharts();
+    }
+
+    let historyLoadedAt = 0;
+    let loadingHistory = false;
+
+    function showLoadError() {
+      if (readings.length) return;
+      const status = document.getElementById("status");
+      status.className = "wait";
+      status.textContent = "Could not load readings.";
+    }
+
+    function applyReading(reading) {
+      if (!reading || typeof reading !== "object" || Array.isArray(reading)) return false;
+      const when = Date.parse(reading.received_at);
+      if (!Number.isFinite(when)) return false;
+      if (!readings.length) {
+        readings.push(reading);
+        return true;
+      }
+      const lastWhen = Date.parse(readings[readings.length - 1].received_at);
+      if (Number.isFinite(lastWhen) && when < lastWhen) return false;
+      if (when === lastWhen) readings[readings.length - 1] = reading;
+      else readings.push(reading);
+      return true;
+    }
+
+    async function loadHistory() {
+      if (loadingHistory) return;
+      loadingHistory = true;
+      try {
+        const response = await fetch("/history", {cache: "no-store"});
+        if (!response.ok) throw new Error(String(response.status));
+        const data = await response.json();
+        if (!Array.isArray(data)) throw new Error("bad payload");
+        readings = data;
+        historyLoadedAt = Date.now();
+        render();
+        try {
+          await pollLatest();
+        } catch (err) {}
+      } finally {
+        loadingHistory = false;
+      }
+    }
+
+    async function pollLatest() {
+      const response = await fetch("/readings", {cache: "no-store"});
+      if (!response.ok) throw new Error(String(response.status));
+      const data = await response.json();
+      if (applyReading(data)) render();
+    }
+
+    async function refresh() {
+      try {
+        if (!readings.length) await loadHistory();
+        else await pollLatest();
+      } catch (err) {
+        showLoadError();
+      }
+    }
+
+    document.querySelectorAll("[data-range]").forEach(button => {
+      button.addEventListener("click", () => {
+        rangeKey = button.dataset.range;
+        document.querySelectorAll("[data-range]").forEach(other => {
+          other.setAttribute("aria-pressed", other === button ? "true" : "false");
+        });
+        renderCharts();
+      });
+    });
+
+    document.getElementById("threshold-toggle").addEventListener("click", () => {
+      showThresholds = !showThresholds;
+      const button = document.getElementById("threshold-toggle");
+      button.setAttribute("aria-pressed", showThresholds ? "true" : "false");
+      button.setAttribute("aria-label", showThresholds ? "Hide temperature thresholds" : "Show temperature thresholds");
+      renderCharts();
+    });
+
+    document.querySelectorAll("[data-unit]").forEach(button => {
+      button.addEventListener("click", () => {
+        tempUnit = button.dataset.unit;
+        document.querySelectorAll("[data-unit]").forEach(other => {
+          other.setAttribute("aria-pressed", other === button ? "true" : "false");
+        });
+        renderCharts();
+      });
+    });
+
+    function syncThemeButton() {
+      const button = document.getElementById("theme-toggle");
+      const night = nightMode();
+      button.setAttribute("aria-pressed", night ? "true" : "false");
+      button.textContent = night ? "Day" : "Night";
+      button.setAttribute("aria-label", night ? "Switch to day mode" : "Switch to night mode");
+    }
+
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+      document.documentElement.classList.toggle("night");
+      try {
+        localStorage.setItem("vermiculture-theme", nightMode() ? "night" : "day");
+      } catch (err) {}
+      syncThemeButton();
+      renderCharts();
+    });
+    syncThemeButton();
+
+    window.addEventListener("resize", renderCharts);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "visible") return;
+      const missed = Date.now() - historyLoadedAt > 5 * 60 * 1000;
+      const action = missed ? loadHistory() : refresh();
+      action.catch(showLoadError);
+    });
+    refresh();
+    setInterval(refresh, 60 * 1000);
+  </script>
+</body>
+</html>
