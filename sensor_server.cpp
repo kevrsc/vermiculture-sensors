@@ -15,7 +15,7 @@
 // 11,520 records is about 120 days at a 15-minute sample interval.
 static const char *RING_PATH = "/readings.bin";
 static const uint32_t RING_MAGIC = 0x31525356;
-static const uint16_t RING_VERSION = 2;
+static const uint16_t RING_VERSION = 3;
 static const char *TIME_ZONE = "PST8PDT,M3.2.0,M11.1.0";
 static const uint32_t CLOCK_VALID_AFTER = 1700000000;
 
@@ -180,7 +180,20 @@ static int formatSample(const ReadingSample &sample, char *buf, int cap) {
     }
     out.add("}");
   }
-  out.add("],\"received_at\":\"");
+  out.add("]");
+  if (sample.moisturePercent != INT16_MIN) {
+    char moist[96];
+    snprintf(
+      moist,
+      sizeof(moist),
+      ",\"moisture\":[{\"index\":0,\"pin\":%u,\"raw\":%d,\"percent\":%d}]",
+      sample.moisturePin,
+      sample.moistureRaw,
+      sample.moisturePercent
+    );
+    out.add(moist);
+  }
+  out.add(",\"received_at\":\"");
   out.add(stamp);
   out.add("\"}");
   if (out.overflow) {
@@ -277,6 +290,8 @@ void sensorBlankSample(ReadingSample &sample) {
   for (int i = 0; i < SENSOR_SERVER_MAX_PROBES; i++) {
     sample.probes[i].celsiusX100 = INT16_MIN;
   }
+  sample.moistureRaw = INT16_MIN;
+  sample.moisturePercent = INT16_MIN;
 }
 
 void sensorServerBegin() {

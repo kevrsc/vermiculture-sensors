@@ -114,6 +114,7 @@
     .plot text { font-family: Georgia, serif; font-size: 12px; fill: var(--muted); }
     .plot .wait { margin: 0; padding: 8.5rem 1rem 0; text-align: center; }
     .legend { display: flex; flex-wrap: wrap; gap: 0.45rem 1rem; margin-top: 0.6rem; }
+    #moisture-range:not(:empty) { margin-top: 0.8rem; }
     .legend button {
       display: inline-flex;
       align-items: center;
@@ -210,6 +211,14 @@
   </section>
 
   <section>
+    <h2>Soil moisture</h2>
+    <div class="plot" id="moisture-plot"></div>
+    <div class="legend" id="moisture-legend"></div>
+    <div id="moisture-range"></div>
+    <p class="wait">Percent is 0 in dry air and 100 at the wet limit set in the sketch. Raw is the unscaled analog reading. The chart, minimum, and maximum use the selected time range.</p>
+  </section>
+
+  <section>
     <h2>Latest reading</h2>
     <div id="latest"></div>
   </section>
@@ -237,6 +246,7 @@
     let tempUnit = "F";
     let showThresholds = true;
     const hiddenTemp = new Set();
+    const hiddenMoisture = new Set();
 
     function svgEl(name) {
       return document.createElementNS("http://www.w3.org/2000/svg", name);
@@ -354,6 +364,25 @@
         key: address ? "addr:" + address.toLowerCase() : "index:" + sensor.index,
         label: name || (tail ? "Probe …" + tail : "Probe " + sensor.index)
       };
+    }
+
+    function moistureIdentity(sensor) {
+      const pin = finite(sensor.pin);
+      return {
+        key: pin == null ? "index:" + sensor.index : "pin:" + pin,
+        label: pin == null ? "Probe " + sensor.index : "GPIO " + pin
+      };
+    }
+
+    function moistureSeries(rows) {
+      return collectSeries(rows, "moisture", moistureIdentity, sensor => finite(sensor.percent));
+    }
+
+    function formatMoisture(point) {
+      const percent = Math.round(point.v) + "%";
+      const raw = finite(point.raw);
+      if (raw == null) return percent;
+      return percent + " · raw " + Math.round(raw);
     }
 
     function tempSeries(rows) {
@@ -784,6 +813,36 @@
         table.append(thead, tbody);
         root.append(table);
       }
+
+      root.append(el("h3", "Soil moisture"));
+      const probes = Array.isArray(reading.moisture) ? reading.moisture : [];
+      if (!probes.length) {
+        const missing = note("No soil-moisture reading in this post.");
+        missing.className = "wait";
+        root.append(missing);
+      } else {
+        const moistureTable = document.createElement("table");
+        const moistureHead = document.createElement("tr");
+        ["#", "Input", "Moisture", "Raw"].forEach(text => moistureHead.append(el("th", text)));
+        const moistureThead = document.createElement("thead");
+        moistureThead.append(moistureHead);
+        const moistureBody = document.createElement("tbody");
+        probes.forEach(sensor => {
+          const row = document.createElement("tr");
+          const percent = finite(sensor.percent);
+          const raw = finite(sensor.raw);
+          const pin = finite(sensor.pin);
+          row.append(
+            el("td", sensor.index == null ? "" : String(sensor.index)),
+            el("td", pin == null ? "" : "GPIO " + pin),
+            el("td", percent == null ? "no reading" : Math.round(percent) + "%"),
+            el("td", raw == null ? "no reading" : String(Math.round(raw)))
+          );
+          moistureBody.append(row);
+        });
+        moistureTable.append(moistureThead, moistureBody);
+        root.append(moistureTable);
+      }
     }
 
     function renderStatus() {
@@ -958,6 +1017,40 @@
       root.append(table);
     }
 
+    function renderMoistureRange(series) {
+      const root = document.getElementById("moisture-range");
+      root.replaceChildren();
+      if (!series.length) return;
+      const table = document.createElement("table");
+      const head = document.createElement("tr");
+      ["Sensor", "Minimum", "Maximum"].forEach(text => head.append(el("th", text)));
+      const thead = document.createElement("thead");
+      thead.append(head);
+      const tbody = document.createElement("tbody");
+      series.forEach(item => {
+        let min = item.points[0];
+        let max = item.points[0];
+        item.points.forEach(point => {
+          if (point.v < min.v) min = point;
+          if (point.v > max.v) max = point;
+        });
+        const row = document.createElement("tr");
+        row.append(el("td", item.label));
+        [min, max].forEach(point => {
+          const cell = document.createElement("td");
+          cell.append(el("div", formatMoisture(point)));
+          const when = document.createElement("div");
+          when.className = "extreme-when";
+          when.textContent = formatStamp(point.t);
+          cell.append(when);
+          row.append(cell);
+        });
+        tbody.append(row);
+      });
+      table.append(thead, tbody);
+      root.append(table);
+    }
+
     function renderCharts() {
       renderCurrent();
       renderExtremes();
@@ -977,6 +1070,19 @@
           idealHigh: celsiusFromFahrenheit(77),
           lines: [celsiusFromFahrenheit(50), celsiusFromFahrenheit(85)]
         } : null
+      });
+      const moisture = moistureSeries(shown);
+      renderMoistureRange(moisture);
+      const paintMoisture = colorOf(moistureSeries(readings).map(item => item.key));
+      drawChart(document.getElementById("moisture-plot"), document.getElementById("moisture-legend"), moisture, paintMoisture, {
+        empty: "No soil-moisture readings in this range.",
+        aria: "Soil moisture over time",
+        clipId: "clip-moisture",
+        hidden: hiddenMoisture,
+        minPad: 1,
+        domain: [0, 100],
+        value: point => point.v,
+        format: formatMoisture
       });
     }
 

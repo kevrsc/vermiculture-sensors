@@ -15,6 +15,17 @@
 #define KEEPALIVE_INTERVAL_MS (60UL * 60UL * 1000UL)
 #define KEEPALIVE_PULSE_MS 10000UL
 
+// Capacitive soil-moisture probe. Wi-Fi uses ADC2, so this must be an ADC1
+// pin: 32, 33, 34, 35, 36, or 39. GPIO 4 stays the temperature bus.
+const int MOISTURE_PINS[] = {35};
+const int MOISTURE_COUNT = sizeof(MOISTURE_PINS) / sizeof(MOISTURE_PINS[0]);
+
+// Dry is the raw value measured in air. Wet is still a placeholder until the
+// blade is dipped in water. A higher raw value is drier. Percent is 0 at the
+// dry value and 100 at the wet value.
+const int MOISTURE_DRY_RAW = 3500;
+const int MOISTURE_WET_RAW = 1550;
+
 // Set this to true to pulse Bluetooth on KEEPALIVE_INTERVAL_MS.
 const bool BLUETOOTH_KEEPALIVE_ENABLED = false;
 
@@ -84,6 +95,32 @@ void connectWifi() {
   } else {
     Serial.println("Wi-Fi not connected, will retry");
   }
+}
+
+int readMoistureRaw(int pin) {
+  analogRead(pin);
+  long sum = 0;
+  const int samples = 16;
+  for (int i = 0; i < samples; i++) {
+    sum += analogRead(pin);
+    delay(2);
+  }
+  return (int)(sum / samples);
+}
+
+int moisturePercent(int raw) {
+  int span = MOISTURE_DRY_RAW - MOISTURE_WET_RAW;
+  if (span == 0) {
+    return 0;
+  }
+  long percent = (long)(MOISTURE_DRY_RAW - raw) * 100L / span;
+  if (percent < 0) {
+    return 0;
+  }
+  if (percent > 100) {
+    return 100;
+  }
+  return (int)percent;
 }
 
 String sensorAddress(DeviceAddress address) {
@@ -194,6 +231,29 @@ String readingJson(ReadingSample &sample) {
     body += "}";
   }
 
+  body += "],\"moisture\":[";
+  for (int i = 0; i < MOISTURE_COUNT; i++) {
+    if (i > 0) {
+      body += ",";
+    }
+    int raw = readMoistureRaw(MOISTURE_PINS[i]);
+    int percent = moisturePercent(raw);
+    if (i == 0) {
+      sample.moisturePin = (uint8_t)MOISTURE_PINS[i];
+      sample.moistureRaw = (int16_t)raw;
+      sample.moisturePercent = (int16_t)percent;
+    }
+    body += "{\"index\":";
+    body += i;
+    body += ",\"pin\":";
+    body += MOISTURE_PINS[i];
+    body += ",\"raw\":";
+    body += raw;
+    body += ",\"percent\":";
+    body += percent;
+    body += "}";
+  }
+
   body += "],";
   body += statusJson(count);
   if (sensorClockReady()) {
@@ -261,6 +321,14 @@ void setup() {
   delay(500);
   rememberBoot();
   sensors.begin();
+  analogReadResolution(12);
+  Serial.print("Moisture inputs:");
+  for (int i = 0; i < MOISTURE_COUNT; i++) {
+    analogSetPinAttenuation(MOISTURE_PINS[i], ADC_11db);
+    Serial.print(" GPIO ");
+    Serial.print(MOISTURE_PINS[i]);
+  }
+  Serial.println();
   if (strlen(WIFI_PASSWORD) == 0) {
     Serial.println("Set WIFI_PASSWORD in secrets.h, then upload again.");
   }

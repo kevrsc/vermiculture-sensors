@@ -17,9 +17,12 @@ struct __attribute__((packed)) ReadingSample {
   uint32_t unixTime;
   uint8_t probeCount;
   ProbeSample probes[SENSOR_SERVER_MAX_PROBES];
+  uint8_t moisturePin;
+  int16_t moistureRaw;      // INT16_MIN when no moisture probe was read
+  int16_t moisturePercent;  // INT16_MIN when no moisture probe was read
 };
 
-static_assert(sizeof(ReadingSample) == 45, "ReadingSample size changed; bump the ring version");
+static_assert(sizeof(ReadingSample) == 50, "ReadingSample size changed; bump the ring version");
 
 inline bool sensorFormatCenti(int16_t centi, char *out, size_t outLen) {
   if (centi == INT16_MIN) {
